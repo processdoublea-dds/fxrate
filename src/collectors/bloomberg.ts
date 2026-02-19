@@ -71,12 +71,14 @@ export class BloombergCollector implements Collector {
                     buy_sight: rate,
                     buy_transfer: rate,
                     buy_notes: rate,
-                    bank_timestamp: updateTime,
+                    // Display as previous business date (rate fetched today but applies to yesterday)
+                    bank_timestamp: rateDate + 'T00:00:00',
                     raw_data: {
                         api: 'open.er-api.com',
                         base: 'THB',
                         rawRate,
                         formula: `1 / ${rawRate} = ${thbPerUnit}`,
+                        actualApiUpdateTime: updateTime,
                     },
                 });
             }
