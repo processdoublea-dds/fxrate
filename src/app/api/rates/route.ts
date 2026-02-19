@@ -33,11 +33,12 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: bankError.message }, { status: 500 });
     }
 
-    // Fetch BOT + Bloomberg rates from previous business date
+    // Fetch BOT + Bloomberg rates — check BOTH current date AND previous business date
+    // (BOT collector may store rate_date as today or as the previous business date)
     const { data: botRates, error: botError } = await supabaseAdmin
         .from('exchange_rates')
         .select('id, run_id, rate_date, source, currency, currency_label, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, mid_rate, bank_timestamp, fetched_at')
-        .eq('rate_date', botDate)
+        .in('rate_date', [date, botDate])
         .in('source', ['BOT', 'BLOOMBERG'])
         .order('source')
         .order('currency');
@@ -46,8 +47,11 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: botError.message }, { status: 500 });
     }
 
+    // Deduplicate BOT rates — if same currency exists for both dates, prefer current date
+    const botDeduped = deduplicateRates(botRates || []);
+
     // Combine all rates
-    const allRates = [...(bankRates || []), ...(botRates || [])];
+    const allRates = [...(bankRates || []), ...botDeduped];
 
     // Fetch scrape logs for today (all sources)
     const { data: logs, error: logsError } = await supabaseAdmin
@@ -62,8 +66,8 @@ export async function GET(request: NextRequest) {
     }
 
     // BOT + Bloomberg merged summary
-    const botCount = (botRates || []).filter((r) => r.source === 'BOT').length;
-    const bloombergCount = (botRates || []).filter((r) => r.source === 'BLOOMBERG').length;
+    const botCount = botDeduped.filter((r) => r.source === 'BOT').length;
+    const bloombergCount = botDeduped.filter((r) => r.source === 'BLOOMBERG').length;
 
     // Thai bank summaries
     const bankSources = ['SCB', 'KTB', 'KBANK'];
@@ -97,4 +101,22 @@ export async function GET(request: NextRequest) {
         rates: allRates,
         summary: [botBloombergSummary, ...bankSummaries],
     });
+}
+
+/**
+ * Deduplicate rates: if same (source, currency) exists for multiple dates,
+ * keep the one with the latest rate_date
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function deduplicateRates(rates: any[]): any[] {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const map = new Map<string, any>();
+    for (const r of rates) {
+        const key = `${r.source}|${r.currency}`;
+        const existing = map.get(key);
+        if (!existing || r.rate_date > existing.rate_date) {
+            map.set(key, r);
+        }
+    }
+    return Array.from(map.values());
 }

@@ -85,16 +85,23 @@ export class KbankCollector implements Collector {
                 // We want "how many THB per 1 unit of X"
                 const thbPerUnit = 1 / rawRate;
 
+                const rate = Number(thbPerUnit.toFixed(5));
+
                 rates.push({
                     run_id: runId,
                     rate_date: rateDate,
                     source: this.name,
                     currency,
                     currency_label: label,
-                    // Mid-market rate stored as both buy and sell (no spread)
                     mid_rate: Number(thbPerUnit.toFixed(6)),
-                    sell_tt: Number(thbPerUnit.toFixed(4)),
-                    buy_tt: Number(thbPerUnit.toFixed(4)),
+                    // Fill all sell fields with the same rate
+                    sell_tt: rate,
+                    sell_notes: rate,
+                    // Fill all buy fields with the same rate
+                    buy_tt: rate,
+                    buy_sight: rate,
+                    buy_transfer: rate,
+                    buy_notes: rate,
                     bank_timestamp: updateTime,
                     raw_data: {
                         api: 'open.er-api.com',

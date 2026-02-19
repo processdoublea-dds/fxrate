@@ -56,6 +56,8 @@ export class BloombergCollector implements Collector {
                 // We want "how many THB per 1 unit of X"
                 const thbPerUnit = 1 / rawRate;
 
+                const rate = Number(thbPerUnit.toFixed(5));
+
                 rates.push({
                     run_id: runId,
                     rate_date: rateDate,
@@ -63,7 +65,12 @@ export class BloombergCollector implements Collector {
                     currency,
                     currency_label: label,
                     mid_rate: Number(thbPerUnit.toFixed(6)),
-                    sell_tt: Number(thbPerUnit.toFixed(6)),
+                    sell_tt: rate,
+                    sell_notes: rate,
+                    buy_tt: rate,
+                    buy_sight: rate,
+                    buy_transfer: rate,
+                    buy_notes: rate,
                     bank_timestamp: updateTime,
                     raw_data: {
                         api: 'open.er-api.com',
