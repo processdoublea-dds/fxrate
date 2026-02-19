@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 
 interface RateRow {
   id: number;
+  run_id: string;
   source: string;
   currency: string;
   currency_label: string;
@@ -15,6 +16,8 @@ interface RateRow {
   buy_notes: number | null;
   mid_rate: number | null;
   bank_timestamp: string | null;
+  fetched_at: string | null;
+  rate_date: string;
 }
 
 interface SourceSummary {
@@ -42,11 +45,11 @@ interface Toast {
 // Source cards: BOT (includes Bloomberg), SCB, KTB, KBANK
 const SOURCE_CARDS = ['BOT', 'SCB', 'KTB', 'KBANK'];
 
-// Table columns: BOT/Bloomberg merged, SCB, KTB, KBANK
-const TABLE_COLUMNS = ['BOT', 'SCB', 'KTB', 'KBANK'];
-
 // For manual fetch — all 5 actual sources
 const FETCH_SOURCES = ['BOT', 'BLOOMBERG', 'SCB', 'KTB', 'KBANK'];
+
+// Display order for sources in table
+const SOURCE_ORDER = ['SCB', 'KTB', 'KBANK', 'BOT'];
 
 export default function Dashboard() {
   const [date, setDate] = useState(getTodayThai());
@@ -55,6 +58,7 @@ export default function Dashboard() {
   const [fetchingSource, setFetchingSource] = useState<string | null>(null);
   const [fetchingAll, setFetchingAll] = useState(false);
   const [search, setSearch] = useState('');
+  const [filterSource, setFilterSource] = useState<string>('ALL');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const fetchData = useCallback(async () => {
@@ -107,7 +111,6 @@ export default function Dashboard() {
   async function handleFetchBotBloomberg() {
     setFetchingSource('BOT');
     try {
-      // Fetch BOT
       const botRes = await fetch('/api/fetch-single', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -120,7 +123,6 @@ export default function Dashboard() {
         addToast(`✕ BOT: ${botJson.error}`, 'error');
       }
 
-      // Fetch Bloomberg
       const bbRes = await fetch('/api/fetch-single', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -155,8 +157,8 @@ export default function Dashboard() {
     setDate(d.toISOString().split('T')[0]);
   }
 
-  // Build the comparison table data — merge BOT + BLOOMBERG into one column
-  const tableData = buildTableData(data?.rates || [], search);
+  // Build flat raw data rows
+  const tableRows = buildRawTableData(data?.rates || [], search, filterSource);
   const botDate = data?.botDate;
 
   return (
@@ -189,7 +191,6 @@ export default function Dashboard() {
             const status = summary?.status || 'none';
             const isFetching = fetchingSource === source || (source === 'BOT' && fetchingSource === 'BLOOMBERG');
 
-            // BOT card shows the data date
             const cardLabel = source === 'BOT'
               ? `BOT / Bloomberg`
               : source;
@@ -241,26 +242,39 @@ export default function Dashboard() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <button
-            className="fetch-all-btn"
-            onClick={handleFetchAll}
-            disabled={fetchingAll || fetchingSource !== null}
-          >
-            {fetchingAll ? (
-              <><span className="spinner">⟳</span> Fetching All...</>
-            ) : (
-              <>⟳ Fetch All Sources</>
-            )}
-          </button>
+          <div className="filter-group">
+            <select
+              className="source-filter"
+              value={filterSource}
+              onChange={(e) => setFilterSource(e.target.value)}
+            >
+              <option value="ALL">All Sources</option>
+              <option value="SCB">SCB</option>
+              <option value="KTB">KTB</option>
+              <option value="KBANK">KBANK</option>
+              <option value="BOT">BOT</option>
+            </select>
+            <button
+              className="fetch-all-btn"
+              onClick={handleFetchAll}
+              disabled={fetchingAll || fetchingSource !== null}
+            >
+              {fetchingAll ? (
+                <><span className="spinner">⟳</span> Fetching All...</>
+              ) : (
+                <>⟳ Fetch All Sources</>
+              )}
+            </button>
+          </div>
         </div>
 
-        {/* Rate Table */}
+        {/* Raw Data Table */}
         {loading ? (
           <div className="empty-state">
             <div className="icon"><span className="spinner" style={{ fontSize: '48px' }}>⟳</span></div>
             <h3>Loading rates...</h3>
           </div>
-        ) : tableData.length === 0 ? (
+        ) : tableRows.length === 0 ? (
           <div className="empty-state">
             <div className="icon">📊</div>
             <h3>No rates for {date}</h3>
@@ -268,53 +282,50 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="rate-table-wrapper">
-            <table className="rate-table">
+            <div className="table-info">
+              <span>{tableRows.length} records</span>
+              {botDate && <span className="bot-date-note">BOT data date: {botDate}</span>}
+            </div>
+            <table className="rate-table raw-table">
               <thead>
                 <tr>
-                  <th>Currency</th>
-                  {TABLE_COLUMNS.map((col) => (
-                    <th key={col}>
-                      {col === 'BOT' ? (
-                        <span>
-                          BOT
-                          {botDate && <span className="col-date">{formatShortDate(botDate)}</span>}
-                        </span>
-                      ) : (
-                        col
-                      )}
-                    </th>
-                  ))}
+                  <th className="th-row">#</th>
+                  <th className="th-bank">Bank</th>
+                  <th className="th-ccy">Currency</th>
+                  <th className="th-rate">Sell TT</th>
+                  <th className="th-rate">Sell Notes</th>
+                  <th className="th-rate">Buy TT</th>
+                  <th className="th-rate">Buy Sight</th>
+                  <th className="th-rate">Buy Transfer</th>
+                  <th className="th-rate">Buy Notes</th>
+                  <th className="th-label">Currency Name</th>
+                  <th className="th-ts">Bank Timestamp</th>
+                  <th className="th-ts">System Recorded</th>
                 </tr>
               </thead>
               <tbody>
-                {tableData.map((row) => {
-                  const values = TABLE_COLUMNS.map((col) => row.rates[col]);
-                  const numericValues = values.filter((v): v is number => v !== null && v !== undefined);
-                  const best = numericValues.length > 1 ? Math.min(...numericValues) : null;
-                  const worst = numericValues.length > 1 ? Math.max(...numericValues) : null;
-
+                {tableRows.map((row, idx) => {
+                  const isGroupStart = idx === 0 || tableRows[idx - 1].displaySource !== row.displaySource;
                   return (
-                    <tr key={row.currency}>
-                      <td>
-                        <span className="currency-code">{row.currency}</span>
-                        <span className="currency-label">{row.label}</span>
+                    <tr key={row.id} className={isGroupStart ? 'group-start' : ''}>
+                      <td className="td-row">{idx + 1}</td>
+                      <td className="td-bank">
+                        <span className={`bank-tag bank-${row.displaySource.toLowerCase()}`}>
+                          {row.displaySource}
+                        </span>
                       </td>
-                      {TABLE_COLUMNS.map((col) => {
-                        const val = row.rates[col];
-                        if (val === null || val === undefined) {
-                          return <td key={col} className="rate-na">—</td>;
-                        }
-                        const isBest = best !== null && val === best && numericValues.length > 1;
-                        const isWorst = worst !== null && val === worst && numericValues.length > 1;
-                        return (
-                          <td
-                            key={col}
-                            className={isBest ? 'rate-best' : isWorst ? 'rate-worst' : ''}
-                          >
-                            {formatRate(val)}
-                          </td>
-                        );
-                      })}
+                      <td className="td-ccy">
+                        <span className="currency-code">{row.currency}</span>
+                      </td>
+                      <td className="td-rate">{fmtRate(row.sell_tt)}</td>
+                      <td className="td-rate">{fmtRate(row.sell_notes)}</td>
+                      <td className="td-rate">{fmtRate(row.buy_tt)}</td>
+                      <td className="td-rate">{fmtRate(row.buy_sight)}</td>
+                      <td className="td-rate">{fmtRate(row.buy_transfer)}</td>
+                      <td className="td-rate">{fmtRate(row.buy_notes)}</td>
+                      <td className="td-label">{row.currency_label}</td>
+                      <td className="td-ts">{fmtTimestamp(row.bank_timestamp)}</td>
+                      <td className="td-ts">{fmtTimestamp(row.fetched_at)}</td>
                     </tr>
                   );
                 })}
@@ -362,47 +373,68 @@ function formatShortDate(dateStr: string): string {
   }
 }
 
-function formatRate(val: number): string {
-  if (val >= 1) return val.toFixed(4);
-  if (val >= 0.01) return val.toFixed(5);
-  return val.toFixed(6);
+/** Format rate: show 5 decimal places, 0.00000 if null */
+function fmtRate(val: number | null): string {
+  if (val === null || val === undefined) return '0.00000';
+  return val.toFixed(5);
 }
 
-interface TableRow {
-  currency: string;
-  label: string;
-  rates: Record<string, number | null>;
-}
-
-function buildTableData(rates: RateRow[], search: string): TableRow[] {
-  const map = new Map<string, TableRow>();
-
-  for (const r of rates) {
-    const key = r.currency;
-    if (!map.has(key)) {
-      map.set(key, {
-        currency: key,
-        label: r.currency_label || '',
-        rates: {},
-      });
-    }
-    const row = map.get(key)!;
-
-    // Merge BOT + BLOOMBERG into the BOT column
-    const col = (r.source === 'BOT' || r.source === 'BLOOMBERG') ? 'BOT' : r.source;
-
-    // Use sell_tt as the comparison rate; only set if not already set (BOT takes priority over Bloomberg)
-    if (r.sell_tt !== null && (row.rates[col] === undefined || row.rates[col] === null)) {
-      row.rates[col] = r.sell_tt;
-    }
-
-    // Keep the first non-empty label
-    if (!row.label && r.currency_label) {
-      row.label = r.currency_label;
-    }
+/** Format timestamp to readable format */
+function fmtTimestamp(ts: string | null): string {
+  if (!ts) return '';
+  try {
+    const d = new Date(ts);
+    // Format: YYYY/MM/DD HH:mm:ss
+    return d.toLocaleString('en-GB', {
+      timeZone: 'Asia/Bangkok',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).replace(',', '');
+  } catch {
+    return ts;
   }
+}
 
-  let rows = Array.from(map.values());
+interface DisplayRow {
+  id: number;
+  displaySource: string; // BOT (includes BLOOMBERG)
+  currency: string;
+  currency_label: string;
+  sell_tt: number | null;
+  sell_notes: number | null;
+  buy_tt: number | null;
+  buy_sight: number | null;
+  buy_transfer: number | null;
+  buy_notes: number | null;
+  bank_timestamp: string | null;
+  fetched_at: string | null;
+}
+
+function buildRawTableData(rates: RateRow[], search: string, filterSource: string): DisplayRow[] {
+  let rows: DisplayRow[] = rates.map((r) => ({
+    id: r.id,
+    displaySource: (r.source === 'BLOOMBERG') ? 'BOT' : r.source,
+    currency: r.currency,
+    currency_label: r.currency_label || '',
+    sell_tt: r.sell_tt,
+    sell_notes: r.sell_notes,
+    buy_tt: r.buy_tt,
+    buy_sight: r.buy_sight,
+    buy_transfer: r.buy_transfer,
+    buy_notes: r.buy_notes,
+    bank_timestamp: r.bank_timestamp,
+    fetched_at: r.fetched_at,
+  }));
+
+  // Filter by source
+  if (filterSource !== 'ALL') {
+    rows = rows.filter((r) => r.displaySource === filterSource);
+  }
 
   // Filter by search
   if (search) {
@@ -410,18 +442,15 @@ function buildTableData(rates: RateRow[], search: string): TableRow[] {
     rows = rows.filter(
       (r) =>
         r.currency.toLowerCase().includes(q) ||
-        r.label.toLowerCase().includes(q)
+        r.currency_label.toLowerCase().includes(q)
     );
   }
 
-  // Sort: major currencies first, then alphabetical
-  const priority = ['USD', 'EUR', 'GBP', 'JPY', 'CNY', 'AUD', 'SGD', 'CHF', 'HKD', 'CAD'];
+  // Sort by source order (SCB → KTB → KBANK → BOT), then currency within each source
   rows.sort((a, b) => {
-    const aIdx = priority.indexOf(a.currency);
-    const bIdx = priority.indexOf(b.currency);
-    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-    if (aIdx !== -1) return -1;
-    if (bIdx !== -1) return 1;
+    const aOrder = SOURCE_ORDER.indexOf(a.displaySource);
+    const bOrder = SOURCE_ORDER.indexOf(b.displaySource);
+    if (aOrder !== bOrder) return aOrder - bOrder;
     return a.currency.localeCompare(b.currency);
   });
 

@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     // Fetch Thai bank rates for today
     const { data: bankRates, error: bankError } = await supabaseAdmin
         .from('exchange_rates')
-        .select('*')
+        .select('id, run_id, rate_date, source, currency, currency_label, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, mid_rate, bank_timestamp, fetched_at')
         .eq('rate_date', date)
         .in('source', ['SCB', 'KTB', 'KBANK'])
         .order('source')
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     // Fetch BOT + Bloomberg rates from previous business date
     const { data: botRates, error: botError } = await supabaseAdmin
         .from('exchange_rates')
-        .select('*')
+        .select('id, run_id, rate_date, source, currency, currency_label, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, mid_rate, bank_timestamp, fetched_at')
         .eq('rate_date', botDate)
         .in('source', ['BOT', 'BLOOMBERG'])
         .order('source')
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
         status: botLog?.status || (botCount > 0 ? 'success' : 'none'),
         lastFetch: botLog?.started_at || bloombergLog?.started_at || null,
         durationMs: botLog?.duration_ms || null,
-        botDate, // Include the actual date BOT data comes from
+        botDate,
     };
 
     return NextResponse.json({
