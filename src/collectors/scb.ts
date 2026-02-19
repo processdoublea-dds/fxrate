@@ -6,6 +6,18 @@ import { ExchangeRateInsert } from '../lib/supabase';
 const SCB_URL =
     'https://www.scb.co.th/services/scb/exchangeRateService/latest.json?_charset_=UTF-8&lang=en&page=2ea9c13a-6fb9-4a75-9abd-87ef79ee71cc%2C907ab931-1989-41b4-b599-10bff5593570';
 
+/**
+ * SCB JSON fields mapping:
+ *   curCode    → currency
+ *   curName    → currency_label
+ *   sellDD     → sell_tt
+ *   sellNotes  → sell_notes
+ *   buyTT      → buy_tt
+ *   buyExport  → buy_sight
+ *   buyTCHQ    → buy_transfer
+ *   buyNotes   → buy_notes
+ *   runDate/runTime → bank_timestamp
+ */
 export class ScbCollector implements Collector {
     name = 'SCB';
 
@@ -23,123 +35,44 @@ export class ScbCollector implements Collector {
         });
 
         const rates: ExchangeRateInsert[] = [];
-
-        // SCB JSON structure: parse the array of rate objects
-        const items = this.parseItems(data);
+        const items: ScbRate[] = data.exchangeRates || [];
 
         for (const item of items) {
-            const currency = item.currency?.toUpperCase();
+            const currency = (item.curCode || '').toUpperCase();
             if (!currency) continue;
-
-            // Apply exclusion filter
             if (!shouldIncludeCurrency(this.name, currency)) continue;
+
+            const bankTimestamp = item.runDate && item.runTime
+                ? this.parseTimestamp(item.runDate, item.runTime)
+                : new Date().toISOString();
 
             rates.push({
                 run_id: runId,
                 rate_date: rateDate,
                 source: this.name,
                 currency,
-                currency_label: item.currencyLabel || currency,
-                sell_tt: this.parseNumber(item.sellTt),
+                currency_label: item.curName || currency,
+                sell_tt: this.parseNumber(item.sellDD),
                 sell_notes: this.parseNumber(item.sellNotes),
-                buy_tt: this.parseNumber(item.buyTt),
-                buy_sight: this.parseNumber(item.buySight),
-                buy_transfer: this.parseNumber(item.buyTransfer),
+                buy_tt: this.parseNumber(item.buyTT),
+                buy_sight: this.parseNumber(item.buyExport),
+                buy_transfer: this.parseNumber(item.buyTCHQ),
                 buy_notes: this.parseNumber(item.buyNotes),
-                mid_rate: this.parseNumber(item.midRate),
-                bank_timestamp: item.timestamp || new Date().toISOString(),
-                raw_data: item.raw,
+                bank_timestamp: bankTimestamp,
+                raw_data: item as unknown as Record<string, unknown>,
             });
         }
 
         return { rates, rateDate };
     }
 
-    private parseItems(data: unknown): ScbItem[] {
-        const items: ScbItem[] = [];
-
+    private parseTimestamp(date: string, time: string): string {
+        // date: "2026-02-19", time: "13:34:05"
         try {
-            // SCB JSON: typically an array or object with array of rates
-            let rateArray: Record<string, unknown>[] = [];
-
-            if (Array.isArray(data)) {
-                rateArray = data;
-            } else if (typeof data === 'object' && data !== null) {
-                const obj = data as Record<string, unknown>;
-                // Try common nested paths
-                if (obj.data && Array.isArray(obj.data)) {
-                    rateArray = obj.data as Record<string, unknown>[];
-                } else if (obj.rates && Array.isArray(obj.rates)) {
-                    rateArray = obj.rates as Record<string, unknown>[];
-                } else if (obj.result && Array.isArray(obj.result)) {
-                    rateArray = obj.result as Record<string, unknown>[];
-                } else {
-                    // Search nested structure
-                    for (const val of Object.values(obj)) {
-                        if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object') {
-                            rateArray = val as Record<string, unknown>[];
-                            break;
-                        }
-                    }
-                }
-            }
-
-            for (const row of rateArray) {
-                items.push({
-                    currency: String(
-                        row.currency_code ||
-                        row.currencyCode ||
-                        row.currency ||
-                        row.Currency ||
-                        row.ccy ||
-                        ''
-                    ),
-                    currencyLabel: String(
-                        row.currency_name ||
-                        row.currencyName ||
-                        row.Currency_Name ||
-                        row.ccyName ||
-                        ''
-                    ),
-                    sellTt: row.tt_selling ||
-                        row.selling ||
-                        row.sell_tt ||
-                        row.sellTt ||
-                        row.Selling,
-                    sellNotes: row.note_selling ||
-                        row.selling_note ||
-                        row.sell_notes ||
-                        row.bank_note_selling,
-                    buyTt: row.tt_buying ||
-                        row.buying ||
-                        row.buy_tt ||
-                        row.buyTt ||
-                        row.Buying,
-                    buySight: row.sight_buying ||
-                        row.buying_sight ||
-                        row.buy_sight,
-                    buyTransfer: row.transfer_buying ||
-                        row.buying_transfer ||
-                        row.buy_transfer,
-                    buyNotes: row.note_buying ||
-                        row.buying_note ||
-                        row.buy_notes ||
-                        row.bank_note_buying,
-                    midRate: row.mid_rate || row.midRate,
-                    timestamp: String(
-                        row.update_date ||
-                        row.timestamp ||
-                        row.date ||
-                        ''
-                    ),
-                    raw: row,
-                });
-            }
-        } catch (err) {
-            console.error('SCB parse error:', err);
+            return new Date(`${date}T${time}+07:00`).toISOString();
+        } catch {
+            return new Date().toISOString();
         }
-
-        return items;
     }
 
     private parseNumber(val: unknown): number | undefined {
@@ -151,16 +84,16 @@ export class ScbCollector implements Collector {
     }
 }
 
-interface ScbItem {
-    currency: string;
-    currencyLabel: string;
-    sellTt: unknown;
-    sellNotes: unknown;
-    buyTt: unknown;
-    buySight: unknown;
-    buyTransfer: unknown;
-    buyNotes: unknown;
-    midRate: unknown;
-    timestamp: string;
-    raw: Record<string, unknown>;
+interface ScbRate {
+    curCode: string;
+    curName: string;
+    sellDD: string;
+    sellNotes: string;
+    buyTT: string;
+    buyExport: string;
+    buyTCHQ: string;
+    buyNotes: string;
+    runDate: string;
+    runTime: string;
+    recNo: string;
 }
