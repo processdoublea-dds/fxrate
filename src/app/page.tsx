@@ -265,6 +265,13 @@ export default function Dashboard() {
                 <>⟳ Fetch All Sources</>
               )}
             </button>
+            <button
+              className="json-api-btn"
+              onClick={() => window.open(`/api/export?date=${date}`, '_blank')}
+              title="Open JSON API in new tab"
+            >
+              📋 JSON API
+            </button>
           </div>
         </div>
 

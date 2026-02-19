@@ -387,6 +387,29 @@ body {
   transform: none;
 }
 
+.json-api-btn {
+  padding: 10px 22px;
+  background: linear-gradient(135deg, #0d9488, #14b8a6);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.json-api-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(20, 184, 166, 0.4);
+}
+
 /* --- Rate Table (Raw Data) --- */
 .rate-table-wrapper {
   background: var(--bg-card);
