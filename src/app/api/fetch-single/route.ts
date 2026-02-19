@@ -16,26 +16,33 @@ const collectors: Record<string, { new(): { name: string; fetch: () => Promise<{
 };
 
 export async function POST(request: NextRequest) {
-    const body = await request.json();
-    const sourceName = (body.source || '').toUpperCase();
-
-    if (!collectors[sourceName]) {
-        return NextResponse.json(
-            { error: `Unknown source: ${sourceName}. Valid: ${Object.keys(collectors).join(', ')}` },
-            { status: 400 }
-        );
-    }
-
-    const runId = generateRunId();
-    const startTime = Date.now();
-
-    const logId = await insertScrapeLog({
-        run_id: runId,
-        source: sourceName,
-        status: 'running',
-    });
-
     try {
+        const body = await request.json();
+        const sourceName = (body.source || '').toUpperCase();
+
+        if (!collectors[sourceName]) {
+            return NextResponse.json(
+                { error: `Unknown source: ${sourceName}. Valid: ${Object.keys(collectors).join(', ')}` },
+                { status: 400 }
+            );
+        }
+
+        const runId = generateRunId();
+        const startTime = Date.now();
+
+        // Insert scrape log (non-blocking — don't crash if this fails)
+        let logId: number | null = null;
+        try {
+            const log = await insertScrapeLog({
+                run_id: runId,
+                source: sourceName,
+                status: 'running',
+            });
+            logId = log?.id ?? null;
+        } catch (logErr) {
+            console.error('Failed to insert scrape log:', logErr);
+        }
+
         const CollectorClass = collectors[sourceName];
         const collector = new CollectorClass();
         const result = await collector.fetch();
@@ -51,11 +58,15 @@ export async function POST(request: NextRequest) {
         const durationMs = Date.now() - startTime;
 
         if (logId) {
-            await updateScrapeLog(logId, {
-                status: recordsCount > 0 ? 'success' : 'partial',
-                records_count: recordsCount,
-                duration_ms: durationMs,
-            });
+            try {
+                await updateScrapeLog(logId, {
+                    status: recordsCount > 0 ? 'success' : 'partial',
+                    records_count: recordsCount,
+                    duration_ms: durationMs,
+                });
+            } catch (logErr) {
+                console.error('Failed to update scrape log:', logErr);
+            }
         }
 
         return NextResponse.json({
@@ -65,22 +76,12 @@ export async function POST(request: NextRequest) {
             durationMs,
         });
     } catch (err) {
-        const durationMs = Date.now() - startTime;
         const errorMessage = err instanceof Error ? err.message : String(err);
-
-        if (logId) {
-            await updateScrapeLog(logId, {
-                status: 'failed',
-                error_message: errorMessage,
-                duration_ms: durationMs,
-            });
-        }
+        console.error('Fetch single error:', errorMessage);
 
         return NextResponse.json({
             success: false,
-            source: sourceName,
             error: errorMessage,
-            durationMs,
         }, { status: 500 });
     }
 }
