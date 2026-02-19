@@ -18,11 +18,19 @@ export async function hasRateForToday(source: string, rateDate: string): Promise
     return (data?.length ?? 0) > 0;
 }
 
-// Insert exchange rates
+// Insert exchange rates (dedup by rate_date+source+currency to avoid ON CONFLICT error)
 export async function insertRates(rates: ExchangeRateInsert[]) {
+    // Dedup: keep last occurrence per (rate_date, source, currency)
+    const seen = new Map<string, ExchangeRateInsert>();
+    for (const r of rates) {
+        const key = `${r.rate_date}|${r.source}|${r.currency}`;
+        seen.set(key, r);
+    }
+    const deduped = Array.from(seen.values());
+
     const { data, error } = await supabaseAdmin
         .from('exchange_rates')
-        .upsert(rates, { onConflict: 'rate_date,source,currency' });
+        .upsert(deduped, { onConflict: 'rate_date,source,currency' });
 
     if (error) throw new Error(`Insert rates failed: ${error.message}`);
     return data;
