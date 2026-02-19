@@ -22,7 +22,7 @@ export const CURRENCY_CONFIG: Record<string, CurrencyFilter | BloombergConfig> =
     },
     KTB: {
         mode: 'exclude',
-        currencies: ['QAR', 'RUB', 'LAK', 'MMK', 'USD1', 'USD2', 'AUD5'],
+        currencies: ['QAR', 'RUB', 'LAK', 'MMK', 'USD1', 'USD2', 'AUD2', 'AUD5'],
     },
     KBANK: {
         mode: 'exclude',

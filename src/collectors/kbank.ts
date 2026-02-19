@@ -42,11 +42,8 @@ const KBANK_CURRENCIES: Record<string, string> = {
     AED: 'UAE Dirham',
     SAR: 'Saudi Riyal',
     BHD: 'Bahraini Dinar',
-    OMR: 'Omani Rial',
-    KWD: 'Kuwaiti Dinar',
     BND: 'Brunei Dollar',
     ZAR: 'South African Rand',
-    MXN: 'Mexican Peso',
 };
 
 export class KbankCollector implements Collector {
