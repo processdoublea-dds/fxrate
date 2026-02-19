@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Collector, CollectorResult, getTodayDate, generateRunId } from './base';
+import { Collector, CollectorResult, getPreviousBusinessDate, generateRunId } from './base';
 import { shouldIncludeCurrency } from '../lib/currency-config';
 import { ExchangeRateInsert } from '../lib/supabase';
 
@@ -11,7 +11,7 @@ export class BotCollector implements Collector {
 
     async fetch(): Promise<CollectorResult> {
         const runId = generateRunId();
-        const rateDate = getTodayDate();
+        const rateDate = getPreviousBusinessDate();
 
         const { data } = await axios.get(BOT_URL, {
             headers: {

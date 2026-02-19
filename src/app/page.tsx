@@ -23,10 +23,12 @@ interface SourceSummary {
   status: string;
   lastFetch: string | null;
   durationMs: number | null;
+  botDate?: string;
 }
 
 interface ApiResponse {
   date: string;
+  botDate: string;
   rates: RateRow[];
   summary: SourceSummary[];
 }
@@ -37,7 +39,14 @@ interface Toast {
   id: number;
 }
 
-const SOURCES = ['BOT', 'SCB', 'KTB', 'KBANK', 'BLOOMBERG'];
+// Source cards: BOT (includes Bloomberg), SCB, KTB, KBANK
+const SOURCE_CARDS = ['BOT', 'SCB', 'KTB', 'KBANK'];
+
+// Table columns: BOT/Bloomberg merged, SCB, KTB, KBANK
+const TABLE_COLUMNS = ['BOT', 'SCB', 'KTB', 'KBANK'];
+
+// For manual fetch — all 5 actual sources
+const FETCH_SOURCES = ['BOT', 'BLOOMBERG', 'SCB', 'KTB', 'KBANK'];
 
 export default function Dashboard() {
   const [date, setDate] = useState(getTodayThai());
@@ -83,7 +92,7 @@ export default function Dashboard() {
       });
       const json = await res.json();
       if (json.success) {
-        addToast(`✓ ${source}: ${json.recordsCount} currencies fetched (${(json.durationMs / 1000).toFixed(1)}s)`, 'success');
+        addToast(`✓ ${source}: ${json.recordsCount} currencies (${(json.durationMs / 1000).toFixed(1)}s)`, 'success');
         await fetchData();
       } else {
         addToast(`✕ ${source}: ${json.error}`, 'error');
@@ -95,9 +104,46 @@ export default function Dashboard() {
     }
   }
 
+  async function handleFetchBotBloomberg() {
+    setFetchingSource('BOT');
+    try {
+      // Fetch BOT
+      const botRes = await fetch('/api/fetch-single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: 'BOT' }),
+      });
+      const botJson = await botRes.json();
+      if (botJson.success) {
+        addToast(`✓ BOT: ${botJson.recordsCount} currencies`, 'success');
+      } else {
+        addToast(`✕ BOT: ${botJson.error}`, 'error');
+      }
+
+      // Fetch Bloomberg
+      const bbRes = await fetch('/api/fetch-single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: 'BLOOMBERG' }),
+      });
+      const bbJson = await bbRes.json();
+      if (bbJson.success) {
+        addToast(`✓ Bloomberg: ${bbJson.recordsCount} currencies`, 'success');
+      } else {
+        addToast(`✕ Bloomberg: ${bbJson.error}`, 'error');
+      }
+
+      await fetchData();
+    } catch (err) {
+      addToast(`✕ BOT/Bloomberg: ${err instanceof Error ? err.message : 'Failed'}`, 'error');
+    } finally {
+      setFetchingSource(null);
+    }
+  }
+
   async function handleFetchAll() {
     setFetchingAll(true);
-    for (const source of SOURCES) {
+    for (const source of FETCH_SOURCES) {
       await handleFetchSource(source);
     }
     setFetchingAll(false);
@@ -109,8 +155,9 @@ export default function Dashboard() {
     setDate(d.toISOString().split('T')[0]);
   }
 
-  // Build the comparison table data
+  // Build the comparison table data — merge BOT + BLOOMBERG into one column
   const tableData = buildTableData(data?.rates || [], search);
+  const botDate = data?.botDate;
 
   return (
     <>
@@ -134,32 +181,42 @@ export default function Dashboard() {
       </header>
 
       <main className="main-content">
-        {/* Source Status Cards */}
-        <div className="source-cards">
-          {SOURCES.map((source) => {
+        {/* Source Status Cards — 4 cards */}
+        <div className="source-cards four-cols">
+          {SOURCE_CARDS.map((source) => {
             const summary = data?.summary?.find((s) => s.source === source);
             const count = summary?.count || 0;
             const status = summary?.status || 'none';
-            const isFetching = fetchingSource === source;
+            const isFetching = fetchingSource === source || (source === 'BOT' && fetchingSource === 'BLOOMBERG');
+
+            // BOT card shows the data date
+            const cardLabel = source === 'BOT'
+              ? `BOT / Bloomberg`
+              : source;
+
+            const dateLabel = source === 'BOT' && botDate
+              ? `Data: ${formatShortDate(botDate)}`
+              : null;
 
             return (
               <div className="source-card" key={source}>
                 <div className="card-header">
-                  <span className="source-name">{source}</span>
+                  <span className="source-name">{cardLabel}</span>
                   <span className={`status-badge ${status === 'success' ? 'success' : status === 'partial' || status === 'failed' ? 'warning' : 'none'}`}>
-                    {status === 'success' ? '✓ Success' : status === 'partial' ? '⚠ Partial' : status === 'failed' ? '✕ Failed' : '— None'}
+                    {status === 'success' ? '✓ Success' : status === 'partial' ? '⚠ Partial' : status === 'failed' ? '✕ Failed' : status === 'running' ? '⟳ Running' : '— None'}
                   </span>
                 </div>
                 <div className="rate-count">{count}</div>
                 <div className="rate-label">currencies fetched</div>
                 <div className="fetch-time">
+                  {dateLabel && <div style={{ color: 'var(--accent-light)', marginBottom: 2 }}>{dateLabel}</div>}
                   {summary?.lastFetch
                     ? `Last: ${formatTime(summary.lastFetch)}`
                     : 'Not fetched today'}
                 </div>
                 <button
                   className={`fetch-btn ${isFetching ? 'loading' : ''}`}
-                  onClick={() => handleFetchSource(source)}
+                  onClick={() => source === 'BOT' ? handleFetchBotBloomberg() : handleFetchSource(source)}
                   disabled={isFetching || fetchingAll}
                 >
                   {isFetching ? (
@@ -207,7 +264,7 @@ export default function Dashboard() {
           <div className="empty-state">
             <div className="icon">📊</div>
             <h3>No rates for {date}</h3>
-            <p>Click &ldquo;Fetch All Sources&rdquo; to fetch today&apos;s rates</p>
+            <p>Click &ldquo;Fetch All Sources&rdquo; to fetch rates</p>
           </div>
         ) : (
           <div className="rate-table-wrapper">
@@ -215,14 +272,23 @@ export default function Dashboard() {
               <thead>
                 <tr>
                   <th>Currency</th>
-                  {SOURCES.map((s) => (
-                    <th key={s}>{s}</th>
+                  {TABLE_COLUMNS.map((col) => (
+                    <th key={col}>
+                      {col === 'BOT' ? (
+                        <span>
+                          BOT
+                          {botDate && <span className="col-date">{formatShortDate(botDate)}</span>}
+                        </span>
+                      ) : (
+                        col
+                      )}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {tableData.map((row) => {
-                  const values = SOURCES.map((s) => row.rates[s]);
+                  const values = TABLE_COLUMNS.map((col) => row.rates[col]);
                   const numericValues = values.filter((v): v is number => v !== null && v !== undefined);
                   const best = numericValues.length > 1 ? Math.min(...numericValues) : null;
                   const worst = numericValues.length > 1 ? Math.max(...numericValues) : null;
@@ -233,16 +299,16 @@ export default function Dashboard() {
                         <span className="currency-code">{row.currency}</span>
                         <span className="currency-label">{row.label}</span>
                       </td>
-                      {SOURCES.map((s) => {
-                        const val = row.rates[s];
+                      {TABLE_COLUMNS.map((col) => {
+                        const val = row.rates[col];
                         if (val === null || val === undefined) {
-                          return <td key={s} className="rate-na">—</td>;
+                          return <td key={col} className="rate-na">—</td>;
                         }
                         const isBest = best !== null && val === best && numericValues.length > 1;
                         const isWorst = worst !== null && val === worst && numericValues.length > 1;
                         return (
                           <td
-                            key={s}
+                            key={col}
                             className={isBest ? 'rate-best' : isWorst ? 'rate-worst' : ''}
                           >
                             {formatRate(val)}
@@ -271,9 +337,7 @@ export default function Dashboard() {
 // --- Helpers ---
 
 function getTodayThai(): string {
-  const now = new Date();
-  const thai = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Bangkok' }));
-  return thai.toISOString().split('T')[0];
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 }
 
 function formatTime(isoStr: string): string {
@@ -286,6 +350,15 @@ function formatTime(isoStr: string): string {
     }) + ' ICT';
   } catch {
     return isoStr;
+  }
+}
+
+function formatShortDate(dateStr: string): string {
+  try {
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  } catch {
+    return dateStr;
   }
 }
 
@@ -314,10 +387,15 @@ function buildTableData(rates: RateRow[], search: string): TableRow[] {
       });
     }
     const row = map.get(key)!;
-    // Use sell_tt as the comparison rate
-    if (r.sell_tt !== null) {
-      row.rates[r.source] = r.sell_tt;
+
+    // Merge BOT + BLOOMBERG into the BOT column
+    const col = (r.source === 'BOT' || r.source === 'BLOOMBERG') ? 'BOT' : r.source;
+
+    // Use sell_tt as the comparison rate; only set if not already set (BOT takes priority over Bloomberg)
+    if (r.sell_tt !== null && (row.rates[col] === undefined || row.rates[col] === null)) {
+      row.rates[col] = r.sell_tt;
     }
+
     // Keep the first non-empty label
     if (!row.label && r.currency_label) {
       row.label = r.currency_label;
