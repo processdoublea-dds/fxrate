@@ -16,9 +16,6 @@ const collectors: Record<string, { new(): { name: string; fetch: () => Promise<{
     BLOOMBERG: BloombergCollector,
 };
 
-// Sources where the edge function handles insert + logging
-const EDGE_FUNCTION_SOURCES = ['KBANK'];
-
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
@@ -31,30 +28,10 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        const runId = generateRunId();
         const startTime = Date.now();
 
-        const CollectorClass = collectors[sourceName];
-        const collector = new CollectorClass();
-
-        // For KBANK: edge function handles insert + logging directly
-        if (EDGE_FUNCTION_SOURCES.includes(sourceName)) {
-            await collector.fetch();
-            const durationMs = Date.now() - startTime;
-
-            // The edge function already inserted data and logged.
-            // Just return success — the dashboard will re-fetch to get counts.
-            return NextResponse.json({
-                success: true,
-                source: sourceName,
-                recordsCount: -1, // Unknown — edge function handled it
-                durationMs,
-                note: 'Data inserted by edge function',
-            });
-        }
-
-        // Normal flow for other sources
-        const runId = generateRunId();
-
+        // Insert scrape log (non-blocking)
         let logId: number | null = null;
         try {
             const log = await insertScrapeLog({
@@ -67,7 +44,10 @@ export async function POST(request: NextRequest) {
             console.error('Failed to insert scrape log:', logErr);
         }
 
+        const CollectorClass = collectors[sourceName];
+        const collector = new CollectorClass();
         const result = await collector.fetch();
+
         const rates = result.rates as Parameters<typeof insertRates>[0];
         let recordsCount = 0;
 

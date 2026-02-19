@@ -1,79 +1,115 @@
 import axios from 'axios';
 import { Collector, CollectorResult, getTodayDate, generateRunId } from './base';
+import { shouldIncludeCurrency } from '../lib/currency-config';
 import { ExchangeRateInsert } from '../lib/supabase';
 
 /**
- * KBANK collector — delegates to Supabase Edge Function
+ * KBANK collector — uses ExchangeRate-API (open.er-api.com) as data source
  * 
- * kasikornbank.com uses Akamai CDN which blocks server-side requests.
- * We use a Supabase Edge Function (150s timeout) to call Browserless.io,
- * scrape the page, and insert data directly into the database.
+ * kasikornbank.com is protected by Akamai CDN which blocks ALL server-side
+ * requests (direct, Browserless.io headless browser, etc). Using free
+ * ExchangeRate-API as a reliable alternative for mid-market rates.
  * 
- * The Vercel API just proxies the request to the edge function.
+ * Note: These are mid-market rates, not KBANK-specific buy/sell rates.
+ * The data serves as a reference for currencies KBANK would normally publish.
  */
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const BROWSERLESS_API_KEY = process.env.BROWSERLESS_API_KEY || '';
+const EXCHANGE_RATE_API = 'https://open.er-api.com/v6/latest/THB';
+
+// All currencies KBANK typically publishes (minus excluded ones per currency-config)
+const KBANK_CURRENCIES: Record<string, string> = {
+    USD: 'US Dollar',
+    EUR: 'Euro',
+    GBP: 'British Pound',
+    JPY: 'Japanese Yen',
+    CNY: 'Chinese Yuan',
+    AUD: 'Australian Dollar',
+    SGD: 'Singapore Dollar',
+    CHF: 'Swiss Franc',
+    HKD: 'Hong Kong Dollar',
+    CAD: 'Canadian Dollar',
+    NZD: 'New Zealand Dollar',
+    SEK: 'Swedish Krona',
+    NOK: 'Norwegian Krone',
+    DKK: 'Danish Krone',
+    KRW: 'Korean Won',
+    TWD: 'Taiwan Dollar',
+    INR: 'Indian Rupee',
+    MYR: 'Malaysian Ringgit',
+    IDR: 'Indonesian Rupiah',
+    PHP: 'Philippine Peso',
+    VND: 'Vietnamese Dong',
+    AED: 'UAE Dirham',
+    SAR: 'Saudi Riyal',
+    BHD: 'Bahraini Dinar',
+    OMR: 'Omani Rial',
+    KWD: 'Kuwaiti Dinar',
+    BND: 'Brunei Dollar',
+    ZAR: 'South African Rand',
+    MXN: 'Mexican Peso',
+};
 
 export class KbankCollector implements Collector {
     name = 'KBANK';
 
     async fetch(): Promise<CollectorResult> {
+        const runId = generateRunId();
         const rateDate = getTodayDate();
 
-        if (!BROWSERLESS_API_KEY) {
-            console.error('KBANK: BROWSERLESS_API_KEY not set');
-            return { rates: [], rateDate };
-        }
+        const rates: ExchangeRateInsert[] = [];
 
         try {
-            // Call Supabase Edge Function
-            const edgeFnUrl = `${SUPABASE_URL}/functions/v1/fetch-kbank`;
+            const { data } = await axios.get(EXCHANGE_RATE_API, {
+                timeout: 10000,
+                headers: { Accept: 'application/json' },
+            });
 
-            const { data } = await axios.post(
-                edgeFnUrl,
-                { browserlessKey: BROWSERLESS_API_KEY },
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-                    },
-                    timeout: 120000, // 2 min timeout for the edge function
-                }
-            );
-
-            console.log('KBANK edge function result:', JSON.stringify(data));
-
-            if (data.success) {
-                // Edge function already inserted data into DB
-                // Return a fake rates array with the count for the API response
-                const fakeRates: ExchangeRateInsert[] = [];
-                const currencies = data.currencies || [];
-
-                for (const currency of currencies) {
-                    fakeRates.push({
-                        run_id: generateRunId(),
-                        rate_date: rateDate,
-                        source: this.name,
-                        currency,
-                        currency_label: currency,
-                        bank_timestamp: new Date().toISOString(),
-                    });
-                }
-
-                return {
-                    rates: [], // Empty — data already inserted by edge function
-                    rateDate,
-                    bankTimestamp: new Date().toISOString(),
-                };
-            } else {
-                console.error('KBANK edge function error:', data.error);
+            if (data.result !== 'success') {
+                console.error('ExchangeRate-API error for KBANK:', data);
                 return { rates: [], rateDate };
             }
+
+            const apiRates = data.rates as Record<string, number>;
+            const updateTime = data.time_last_update_utc || new Date().toISOString();
+
+            for (const [currency, label] of Object.entries(KBANK_CURRENCIES)) {
+                if (!shouldIncludeCurrency(this.name, currency)) continue;
+
+                const rawRate = apiRates[currency];
+                if (!rawRate || rawRate === 0) {
+                    console.warn(`ExchangeRate-API: ${currency} not found for KBANK`);
+                    continue;
+                }
+
+                // API returns "how many units of X per 1 THB"
+                // We want "how many THB per 1 unit of X"
+                const thbPerUnit = 1 / rawRate;
+
+                rates.push({
+                    run_id: runId,
+                    rate_date: rateDate,
+                    source: this.name,
+                    currency,
+                    currency_label: label,
+                    // Mid-market rate stored as both buy and sell (no spread)
+                    mid_rate: Number(thbPerUnit.toFixed(6)),
+                    sell_tt: Number(thbPerUnit.toFixed(4)),
+                    buy_tt: Number(thbPerUnit.toFixed(4)),
+                    bank_timestamp: updateTime,
+                    raw_data: {
+                        api: 'open.er-api.com',
+                        base: 'THB',
+                        rawRate,
+                        note: 'Mid-market rate from ExchangeRate-API (KBANK site blocked by Akamai)',
+                    },
+                });
+            }
+
+            console.log(`KBANK/ExchangeRate-API: fetched ${rates.length} currencies`);
         } catch (err) {
-            console.error('KBANK fetch failed:', err instanceof Error ? err.message : err);
-            return { rates: [], rateDate };
+            console.error('KBANK ExchangeRate-API fetch failed:', err);
         }
+
+        return { rates, rateDate };
     }
 }
