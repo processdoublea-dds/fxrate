@@ -7,13 +7,17 @@ import { BloombergCollector } from '@/collectors/bloomberg';
 import { insertRates, insertScrapeLog, updateScrapeLog } from '@/lib/supabase';
 import { generateRunId } from '@/collectors/base';
 
-const collectors: Record<string, { new(): { name: string; fetch: () => Promise<{ rates: unknown[]; rateDate: string }> } }> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const collectors: Record<string, { new(): { name: string; fetch: () => Promise<{ rates: any[]; rateDate: string }> } }> = {
     BOT: BotCollector,
     SCB: ScbCollector,
     KTB: KtbCollector,
     KBANK: KbankCollector,
     BLOOMBERG: BloombergCollector,
 };
+
+// Sources where the edge function handles insert + logging
+const EDGE_FUNCTION_SOURCES = ['KBANK'];
 
 export async function POST(request: NextRequest) {
     try {
@@ -27,10 +31,30 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        const runId = generateRunId();
         const startTime = Date.now();
 
-        // Insert scrape log (non-blocking — don't crash if this fails)
+        const CollectorClass = collectors[sourceName];
+        const collector = new CollectorClass();
+
+        // For KBANK: edge function handles insert + logging directly
+        if (EDGE_FUNCTION_SOURCES.includes(sourceName)) {
+            await collector.fetch();
+            const durationMs = Date.now() - startTime;
+
+            // The edge function already inserted data and logged.
+            // Just return success — the dashboard will re-fetch to get counts.
+            return NextResponse.json({
+                success: true,
+                source: sourceName,
+                recordsCount: -1, // Unknown — edge function handled it
+                durationMs,
+                note: 'Data inserted by edge function',
+            });
+        }
+
+        // Normal flow for other sources
+        const runId = generateRunId();
+
         let logId: number | null = null;
         try {
             const log = await insertScrapeLog({
@@ -43,10 +67,7 @@ export async function POST(request: NextRequest) {
             console.error('Failed to insert scrape log:', logErr);
         }
 
-        const CollectorClass = collectors[sourceName];
-        const collector = new CollectorClass();
         const result = await collector.fetch();
-
         const rates = result.rates as Parameters<typeof insertRates>[0];
         let recordsCount = 0;
 
