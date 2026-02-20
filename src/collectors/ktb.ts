@@ -49,7 +49,7 @@ export class KtbCollector implements Collector {
 
             // For currencies with denominations (USD, AUD), use exType "1" as main
             // For others, or if denomRate has "$50-100" pattern, take the main row
-            const denomKey = `${currency}_${item.exType}`;
+
 
             // Take exType "1" first; if denomination, create separate entries
             if (item.denomRate && item.exType !== '1') {

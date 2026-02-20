@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 
 // ============ Types ============
 interface RateRecord {
@@ -199,7 +200,7 @@ export default function ComparePage() {
             `}</style>
 
             <div className="cp-hdr">
-                <h1>📊 Rate Comparison <a href="/">← Dashboard</a></h1>
+                <h1>📊 Rate Comparison <Link href="/">← Dashboard</Link></h1>
                 <div className="ctrl">
                     <input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={getTodayThai()} />
                     <select value={filterBank} onChange={(e) => setFilterBank(e.target.value)}>
