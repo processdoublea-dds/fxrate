@@ -26,11 +26,28 @@ export async function notifyTeams(
     const statusEmoji = (s: string) =>
         s === 'success' ? '✅' : s === 'partial' ? '⚠️' : '❌';
 
-    // Build summary rows
-    const summaryRows = summaries.map(
-        (s) =>
-            `| ${statusEmoji(s.status)} ${s.source} | ${s.status} | ${s.recordsCount} currencies | ${(s.durationMs / 1000).toFixed(1)}s |`
-    );
+    // Build header column set
+    const headerSet = {
+        type: 'ColumnSet',
+        spacing: 'Medium',
+        columns: [
+            { type: 'Column', width: '20', items: [{ type: 'TextBlock', text: '**Source**', weight: 'Bolder', size: 'Small' }] },
+            { type: 'Column', width: '20', items: [{ type: 'TextBlock', text: '**Status**', weight: 'Bolder', size: 'Small' }] },
+            { type: 'Column', width: '30', items: [{ type: 'TextBlock', text: '**Records**', weight: 'Bolder', size: 'Small' }] },
+            { type: 'Column', width: '30', items: [{ type: 'TextBlock', text: '**Duration**', weight: 'Bolder', size: 'Small' }] },
+        ]
+    };
+
+    // Build data column sets
+    const rowSets = summaries.map((s) => ({
+        type: 'ColumnSet',
+        columns: [
+            { type: 'Column', width: '20', items: [{ type: 'TextBlock', text: `${statusEmoji(s.status)} ${s.source}`, size: 'Small' }] },
+            { type: 'Column', width: '20', items: [{ type: 'TextBlock', text: s.status, size: 'Small', color: s.status === 'success' ? 'Good' : 'Attention' }] },
+            { type: 'Column', width: '30', items: [{ type: 'TextBlock', text: `${s.recordsCount} currencies`, size: 'Small' }] },
+            { type: 'Column', width: '30', items: [{ type: 'TextBlock', text: `${(s.durationMs / 1000).toFixed(1)}s`, size: 'Small' }] },
+        ]
+    }));
 
     const card = {
         type: 'message',
@@ -49,15 +66,8 @@ export async function notifyTeams(
                             size: 'Medium',
                         },
                         {
-                            type: 'TextBlock',
-                            text: [
-                                '| Source | Status | Records | Duration |',
-                                '|--------|--------|---------|----------|',
-                                ...summaryRows,
-                            ].join('\n'),
-                            fontType: 'Monospace',
-                            size: 'Small',
-                            wrap: true,
+                            type: 'Container',
+                            items: [headerSet, ...rowSets]
                         }
                     ],
                     actions: [
