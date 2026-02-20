@@ -1,12 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/fetch-bot-bloomberg",
-      "schedule": "0 0 * * 1-5"
-    },
-    {
-      "path": "/api/fetch-thai-banks",
-      "schedule": "0 1 * * *"
-    }
-  ]
-}
+{}
