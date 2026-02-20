@@ -272,6 +272,14 @@ export default function Dashboard() {
             >
               📋 JSON API
             </button>
+            <button
+              className="json-api-btn"
+              onClick={() => window.open(`/compare`, '_blank')}
+              title="Compare with reference data"
+              style={{ background: 'linear-gradient(135deg, #7c3aed, #a78bfa)' }}
+            >
+              📊 Compare
+            </button>
           </div>
         </div>
 
