@@ -124,9 +124,9 @@ export class KbankCollector implements Collector {
                     source: this.name,
                     currency: finalCurrency,
                     currency_label: currencyLabel,
-                    sell_tt: item.telex_transfer || 0,
+                    sell_tt: item.tt_draft_t_cheques || 0, // KBANK uses this column for Selling TT
                     sell_notes: item.bank_selling_notes || 0,
-                    buy_tt: item.tt_draft_t_cheques || 0, // Kbank groups Draft/TT/Cheques on buy side
+                    buy_tt: item.telex_transfer || 0, // KBANK uses this column for Buying TT
                     buy_sight: item.export_sight_bill || 0,
                     buy_transfer: 0,
                     buy_notes: item.bank_buying_notes || 0,
