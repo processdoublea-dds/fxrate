@@ -90,11 +90,13 @@ export class KbankCollector implements Collector {
             const seen = new Set<string>();
 
             for (const item of parsedData) {
-                if (!item.currency_code) {
-                    console.warn('KBANK: Skipping item with missing currency_code:', JSON.stringify(item).slice(0, 200));
+                // BrowserAct may return field as 'currency_code' or 'currency'
+                const rawCode = item.currency_code || item.currency;
+                if (!rawCode) {
+                    console.warn('KBANK: Skipping item with missing currency field:', JSON.stringify(item).slice(0, 200));
                     continue;
                 }
-                let currencyCode = item.currency_code.toUpperCase();
+                let currencyCode = rawCode.toUpperCase();
 
                 // Handle Kbank Denominations
                 // Typically USD1, USD5-20, USD50-100
