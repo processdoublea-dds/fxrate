@@ -141,11 +141,11 @@ export class KbankCollector implements Collector {
                     currency: finalCurrency,
                     currency_label: currencyLabel,
                     sell_tt: normalizeNumber(item.tt_draft_t_cheques),
-                    sell_notes: normalizeNumber(item.bank_selling_notes),
+                    sell_notes: normalizeNumber(item.bank_selling_notes ?? item.bank_notes_sell),
                     buy_tt: normalizeNumber(item.telex_transfer),
                     buy_sight: normalizeNumber(item.export_sight_bill),
                     buy_transfer: 0,
-                    buy_notes: normalizeNumber(item.bank_buying_notes),
+                    buy_notes: normalizeNumber(item.bank_buying_notes ?? item.bank_notes_buy),
                     bank_timestamp: bankTimestamp,
                     raw_data: item,
                 });
