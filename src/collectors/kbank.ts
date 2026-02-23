@@ -123,6 +123,10 @@ export class KbankCollector implements Collector {
                 }
 
                 if (!shouldIncludeCurrency(this.name, finalCurrency)) continue;
+                if (finalCurrency.length > 10) {
+                    console.warn(`KBANK: Skipping currency with code too long (${finalCurrency.length}): ${finalCurrency}`);
+                    continue;
+                }
                 if (seen.has(finalCurrency)) continue;
                 seen.add(finalCurrency);
 

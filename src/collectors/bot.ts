@@ -44,11 +44,22 @@ export class BotCollector implements Collector {
                 // Use whichever sell rate we find for ALL sell fields
                 sell_tt: this.parseNumber(item.sellTt) ?? this.parseNumber(item.sellNotes),
                 sell_notes: this.parseNumber(item.sellNotes) ?? this.parseNumber(item.sellTt),
-                // Use whichever buy rate we find for ALL buy fields
-                buy_tt: this.parseNumber(item.buyTt) ?? this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buySight) ?? this.parseNumber(item.buyNotes),
-                buy_sight: this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyTt) ?? this.parseNumber(item.buyNotes),
-                buy_transfer: this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyTt) ?? this.parseNumber(item.buySight) ?? this.parseNumber(item.buyNotes),
-                buy_notes: this.parseNumber(item.buyNotes) ?? this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyTt) ?? this.parseNumber(item.buySight),
+                // BOT USD special mapping:
+                //   buy_tt + buy_sight → Sight Bill rate (buying_sight)
+                //   buy_transfer + buy_notes → Transfer rate (buying_transfer)
+                // Other currencies: use default fallback
+                buy_tt: currency === 'USD'
+                    ? (this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTt))
+                    : (this.parseNumber(item.buyTt) ?? this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTransfer)),
+                buy_sight: currency === 'USD'
+                    ? (this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTt))
+                    : (this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTt) ?? this.parseNumber(item.buyTransfer)),
+                buy_transfer: currency === 'USD'
+                    ? (this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buySight))
+                    : (this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyTt) ?? this.parseNumber(item.buySight)),
+                buy_notes: currency === 'USD'
+                    ? (this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyNotes))
+                    : (this.parseNumber(item.buyNotes) ?? this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyTt)),
                 mid_rate: this.parseNumber(item.midRate),
                 bank_timestamp: item.timestamp || new Date().toISOString(),
                 raw_data: item.raw,
