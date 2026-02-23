@@ -55,7 +55,7 @@ const SOURCE_ORDER = ['SCB', 'KTB', 'KBANK', 'BOT'];
 const CURRENCY_ORDER: Record<string, string[]> = {
   SCB: ['USD', 'EUR', 'GBP', 'JPY', 'SGD', 'HKD', 'KRW', 'CHF', 'AUD', 'MYR', 'ZAR', 'SEK', 'CAD', 'DKK', 'NOK', 'NZD', 'INR', 'CNY', 'PHP', 'TWD', 'BHD', 'SAR', 'IDR', 'AED', 'OMR', 'BND', 'VND'],
   KTB: ['USD', 'EUR', 'GBP', 'JPY', 'HKD', 'CNY', 'AUD', 'SGD', 'CAD', 'DKK', 'INR', 'IDR', 'KRW', 'MYR', 'TWD', 'NZD', 'NOK', 'SAR', 'SEK', 'CHF', 'AED', 'VND'],
-  KBANK: ['USD', 'USD2', 'USD3', 'AED', 'AUD', 'BHD', 'BND', 'CAD', 'CHF', 'CNY', 'DKK', 'EUR', 'GBP', 'HKD', 'IDR', 'INR', 'JPY', 'KRW', 'MYR', 'NOK', 'NZD', 'PHP', 'SAR', 'SEK', 'SGD', 'TWD', 'VND', 'ZAR'],
+  KBANK: ['USD', 'AED', 'AUD', 'BHD', 'BND', 'CAD', 'CHF', 'CNY', 'DKK', 'EUR', 'GBP', 'HKD', 'IDR', 'INR', 'JPY', 'KRW', 'MYR', 'NOK', 'NZD', 'PHP', 'SAR', 'SEK', 'SGD', 'TWD', 'VND', 'ZAR'],
   BOT: ['MXN', 'KWD', 'MMK', 'BDT', 'CZK', 'KHR', 'KES', 'LAK', 'RUB', 'EGP', 'PLN', 'LKR', 'IQD', 'JOD', 'QAR', 'MVR', 'NPR', 'ILS', 'HUF', 'PKR', 'USD', 'BTN', 'MNT'],
 };
 
