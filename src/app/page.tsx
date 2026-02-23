@@ -42,14 +42,22 @@ interface Toast {
   id: number;
 }
 
-// Source cards: BOT (includes Bloomberg), SCB, KTB, KBANK
-const SOURCE_CARDS = ['BOT', 'SCB', 'KTB', 'KBANK'];
+// Source cards order: SCB, KTB, KBANK, BOT (matches reference AppScript)
+const SOURCE_CARDS = ['SCB', 'KTB', 'KBANK', 'BOT'];
 
 // For manual fetch — all 5 actual sources
-const FETCH_SOURCES = ['BOT', 'BLOOMBERG', 'SCB', 'KTB', 'KBANK'];
+const FETCH_SOURCES = ['SCB', 'KTB', 'KBANK', 'BOT', 'BLOOMBERG'];
 
-// Display order for sources in table
+// Display order for sources in table (matches reference AppScript)
 const SOURCE_ORDER = ['SCB', 'KTB', 'KBANK', 'BOT'];
+
+// Currency order per source (from reference AppScript system)
+const CURRENCY_ORDER: Record<string, string[]> = {
+  SCB: ['USD', 'EUR', 'GBP', 'JPY', 'SGD', 'HKD', 'KRW', 'CHF', 'AUD', 'MYR', 'ZAR', 'SEK', 'CAD', 'DKK', 'NOK', 'NZD', 'INR', 'CNY', 'PHP', 'TWD', 'BHD', 'SAR', 'IDR', 'AED', 'OMR', 'BND', 'VND'],
+  KTB: ['USD', 'EUR', 'GBP', 'JPY', 'HKD', 'CNY', 'AUD', 'SGD', 'CAD', 'DKK', 'INR', 'IDR', 'KRW', 'MYR', 'TWD', 'NZD', 'NOK', 'SAR', 'SEK', 'CHF', 'AED', 'VND'],
+  KBANK: ['USD', 'USD2', 'USD3', 'AED', 'AUD', 'BHD', 'BND', 'CAD', 'CHF', 'CNY', 'DKK', 'EUR', 'GBP', 'HKD', 'IDR', 'INR', 'JPY', 'KRW', 'MYR', 'NOK', 'NZD', 'PHP', 'SAR', 'SEK', 'SGD', 'TWD', 'VND', 'ZAR'],
+  BOT: ['MXN', 'KWD', 'MMK', 'BDT', 'CZK', 'KHR', 'KES', 'LAK', 'RUB', 'EGP', 'PLN', 'LKR', 'IQD', 'JOD', 'QAR', 'MVR', 'NPR', 'ILS', 'HUF', 'PKR', 'USD', 'BTN', 'MNT'],
+};
 
 export default function Dashboard() {
   const [date, setDate] = useState(getTodayThai());
@@ -461,11 +469,19 @@ function buildRawTableData(rates: RateRow[], search: string, filterSource: strin
     );
   }
 
-  // Sort by source order (SCB → KTB → KBANK → BOT), then currency within each source
+  // Sort by source order (SCB → KTB → KBANK → BOT), then currency per-source custom order
   rows.sort((a, b) => {
     const aOrder = SOURCE_ORDER.indexOf(a.displaySource);
     const bOrder = SOURCE_ORDER.indexOf(b.displaySource);
     if (aOrder !== bOrder) return aOrder - bOrder;
+    // Per-source currency order from reference system
+    const ccyOrder = CURRENCY_ORDER[a.displaySource] || [];
+    const aCcy = ccyOrder.indexOf(a.currency);
+    const bCcy = ccyOrder.indexOf(b.currency);
+    // Known currencies sort by reference order, unknown go to end alphabetically
+    if (aCcy !== -1 && bCcy !== -1) return aCcy - bCcy;
+    if (aCcy !== -1) return -1;
+    if (bCcy !== -1) return 1;
     return a.currency.localeCompare(b.currency);
   });
 
