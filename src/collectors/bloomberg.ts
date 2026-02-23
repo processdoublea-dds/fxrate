@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Collector, CollectorResult, getPreviousBusinessDate, generateRunId } from './base';
+import { Collector, CollectorResult, getYesterdayDate, generateRunId } from './base';
 import { ExchangeRateInsert } from '../lib/supabase';
 
 /**
@@ -73,7 +73,8 @@ export class BloombergCollector implements Collector {
 
     async fetch(): Promise<CollectorResult> {
         const runId = generateRunId();
-        const rateDate = getPreviousBusinessDate();
+        // BTN/MNT always use yesterday's calendar date (not previous business date)
+        const rateDate = getYesterdayDate();
         const rates: ExchangeRateInsert[] = [];
 
         const apiKey = process.env.BROWSERACT_API_KEY;
