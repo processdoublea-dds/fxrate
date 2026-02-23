@@ -90,6 +90,10 @@ export class KbankCollector implements Collector {
             const seen = new Set<string>();
 
             for (const item of parsedData) {
+                if (!item.currency_code) {
+                    console.warn('KBANK: Skipping item with missing currency_code:', JSON.stringify(item).slice(0, 200));
+                    continue;
+                }
                 let currencyCode = item.currency_code.toUpperCase();
 
                 // Handle Kbank Denominations
