@@ -46,18 +46,21 @@ export class ScbCollector implements Collector {
                 ? this.parseTimestamp(item.runDate, item.runTime)
                 : new Date().toISOString();
 
+            // SCB reports JPY per 100 yen — normalize to per 1 yen to match other sources
+            const divisor = currency === 'JPY' ? 100 : 1;
+
             rates.push({
                 run_id: runId,
                 rate_date: rateDate,
                 source: this.name,
                 currency,
                 currency_label: item.curName || currency,
-                sell_tt: this.parseNumber(item.sellDD),
-                sell_notes: this.parseNumber(item.sellNotes),
-                buy_tt: this.parseNumber(item.buyTT),
-                buy_sight: this.parseNumber(item.buyExport),
-                buy_transfer: this.parseNumber(item.buyTCHQ),
-                buy_notes: this.parseNumber(item.buyNotes),
+                sell_tt: this.parseDivide(item.sellDD, divisor),
+                sell_notes: this.parseDivide(item.sellNotes, divisor),
+                buy_tt: this.parseDivide(item.buyTT, divisor),
+                buy_sight: this.parseDivide(item.buyExport, divisor),
+                buy_transfer: this.parseDivide(item.buyTCHQ, divisor),
+                buy_notes: this.parseDivide(item.buyNotes, divisor),
                 bank_timestamp: bankTimestamp,
                 raw_data: item as unknown as Record<string, unknown>,
             });
@@ -81,6 +84,12 @@ export class ScbCollector implements Collector {
         }
         const num = Number(val);
         return isNaN(num) ? undefined : num;
+    }
+
+    private parseDivide(val: unknown, divisor: number): number | undefined {
+        const num = this.parseNumber(val);
+        if (num === undefined) return undefined;
+        return divisor === 1 ? num : num / divisor;
     }
 }
 
