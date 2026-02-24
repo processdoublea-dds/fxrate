@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { BotCollector, BloombergCollector, generateRunId } from '@/collectors';
+import { BotCollector, generateRunId } from '@/collectors';
 import {
     hasRateForToday,
     insertRates,
@@ -36,7 +36,7 @@ export async function GET(request: Request) {
     const allRates: ExchangeRateInsert[] = [];
     let newDataFetched = false;
 
-    // BOT and Bloomberg use the previous business date
+    // BOT uses the previous business date
     const rateDate = getPreviousBusinessDate();
 
     // BOT
@@ -44,13 +44,8 @@ export async function GET(request: Request) {
     summaries.push(botSummary);
     if (botSummary.status === 'success') newDataFetched = true;
 
-    // Bloomberg
-    const bloombergSummary = await fetchSourceWithRetryAndDedup(new BloombergCollector(), allRates, rateDate, 2); // 2 retries for browseract to stay within 120s Function Limit
-    summaries.push(bloombergSummary);
-    if (bloombergSummary.status === 'success') newDataFetched = true;
-
     // Only send notification if we actually fetched something new or failed
-    if (newDataFetched || botSummary.status === 'failed' || bloombergSummary.status === 'failed') {
+    if (newDataFetched || botSummary.status === 'failed') {
         try {
             await notifyTeams(summaries, allRates, rateDate);
         } catch (err) {
@@ -72,19 +67,9 @@ async function fetchSourceWithRetryAndDedup(
     maxRetries: number = 3
 ): Promise<FetchSummary> {
 
-    // 1. Deduplication check
-    // Note: Bloomberg saves as source="BOT", so we check for BLOOMBERG name if it's the collector, but records are BOT.
-    // The hasRateForToday function checks the source column. Since Bloomberg creates rows with source='BOT', 
-    // it's safer to check if we specifically already have MNT/BTN for that date.
-    // For simplicity, we assume if BOT is fetched, we have BOT. If we are running Bloomberg, we just let it run 
-    // or rely on a custom query. Since BOT and Bloomberg run at the same time, we'll let supabase handle unique constraints via UI or just run fetch.
+    const alreadyFetched = await hasRateForToday(collector.name, rateDate);
 
-    const alreadyFetched = await hasRateForToday(collector.name === 'BLOOMBERG' ? 'BOT' : collector.name, rateDate);
-
-    // If it's bloomberg, alreadyFetched checking "BOT" might be true because the BOT collector just ran.
-    // So deduplication here is tricky. A better approach is trusting the task.
-    // To be perfectly safe, we'll only strict-dedup if it's BOT.
-    if (collector.name === 'BOT' && alreadyFetched) {
+    if (alreadyFetched) {
         console.log(`${collector.name} already fetched for ${rateDate}, skipping`);
         return {
             source: collector.name,
@@ -154,7 +139,6 @@ async function fetchSourceWithRetryAndDedup(
         }
     }
 
-    // If we exhausted retries and failed
     const durationMs = Date.now() - startMs;
     const errorMessage = `Exhausted ${maxRetries} retries for ${collector.name}`;
 

@@ -61,6 +61,23 @@ export async function updateScrapeLog(
     if (error) throw new Error(`Update scrape log failed: ${error.message}`);
 }
 
+// Delete old scrape logs
+export async function deleteOldScrapeLogs(daysToKeep: number = 60) {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+
+    const { count, error } = await supabaseAdmin
+        .from('scrape_logs')
+        .delete({ count: 'exact' })
+        .lt('started_at', cutoffDate.toISOString());
+
+    if (error) {
+        console.error(`Failed to delete old scrape logs:`, error);
+        return 0;
+    }
+    return count ?? 0;
+}
+
 // Types
 export interface ExchangeRateInsert {
     run_id: string;

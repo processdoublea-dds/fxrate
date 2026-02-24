@@ -10,6 +10,7 @@ import {
     insertRates,
     insertScrapeLog,
     updateScrapeLog,
+    deleteOldScrapeLogs,
     ExchangeRateInsert,
 } from '@/lib/supabase';
 import { notifyTeams, notifyTeamsError } from '@/lib/teams-notify';
@@ -83,11 +84,23 @@ export async function GET(request: Request) {
         }
     }
 
+    // Run periodic data cleanup (Delete logs older than 60 days)
+    let deletedLogsCount = 0;
+    try {
+        deletedLogsCount = await deleteOldScrapeLogs(60);
+        if (deletedLogsCount > 0) {
+            console.log(`Cleaned up ${deletedLogsCount} old scrape logs`);
+        }
+    } catch (err) {
+        console.error('Failed to run data cleanup:', err);
+    }
+
     return NextResponse.json({
         success: true,
         rateDate,
         summaries,
         totalNewRates: allRates.length,
+        deletedLogsCount,
     });
 }
 
