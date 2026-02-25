@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
         const { data: logs, error: logError } = await supabaseAdmin
             .from('scrape_logs')
             .select('source, status')
-            .gte('created_at', fourteenHoursAgo)
+            .gte('started_at', fourteenHoursAgo)
             .eq('status', 'success');
 
         if (logError) throw logError;
