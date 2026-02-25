@@ -2,8 +2,8 @@ name: Scheduled API Fetch (Bypass Vercel Hobby Limit)
 
 on:
   schedule:
-    # Run Thai banks fetch every 10 mins from 00:00 to 00:50 UTC (07:00 to 07:50 BKK time) Monday-Friday
-    - cron: '*/10 0 * * 1-5'
+    # Run Thai banks fetch every 10 mins from 00:00 to 01:50 UTC (07:00 to 08:50 BKK time) Monday-Friday
+    - cron: '*/10 0-1 * * 1-5'
     # Run BOT/Bloomberg fetch at exactly 00:30 UTC (07:30 BKK time) Monday-Friday
     - cron: '30 0 * * 1-5'
   workflow_dispatch: # Allows manual trigger from GitHub UI
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Hit Thai Banks API
-        if: github.event.schedule == '*/10 0 * * 1-5' || github.event_name == 'workflow_dispatch'
+        if: github.event.schedule == '*/10 0-1 * * 1-5' || github.event_name == 'workflow_dispatch'
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
