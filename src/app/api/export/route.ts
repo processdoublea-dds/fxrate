@@ -29,13 +29,19 @@ function formatTimestamp(ts: string | null): string {
     if (!ts) return '';
     try {
         const d = new Date(ts);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        const hh = String(d.getHours()).padStart(2, '0');
-        const mi = String(d.getMinutes()).padStart(2, '0');
-        const ss = String(d.getSeconds()).padStart(2, '0');
-        return `${yyyy}/${mm}/${dd} ${hh}:${mi}:${ss}`;
+        const tf = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'Asia/Bangkok',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hourCycle: 'h23'
+        });
+        const parts = tf.formatToParts(d);
+        const p = Object.fromEntries(parts.map(part => [part.type, part.value]));
+        return `${p.year}/${p.month}/${p.day} ${p.hour}:${p.minute}:${p.second}`;
     } catch {
         return ts;
     }
