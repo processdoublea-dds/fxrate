@@ -141,3 +141,76 @@ export async function notifyTeamsError(source: string, error: string) {
         console.error('Teams error notification failed:', err);
     }
 }
+
+/**
+ * Send daily verification summary to MS Teams
+ */
+export async function notifyTeamsVerification(
+    allSourcesComplete: boolean,
+    missingSources: string[],
+    comparisonStats: any,
+    rateDate: string
+) {
+    if (!WEBHOOK_URL) return;
+
+    const completenessText = allSourcesComplete
+        ? `✅ **All 5 Data Sources Fetched Successfully!**`
+        : `❌ **Missing Data Sources:** ${missingSources.join(', ')}`;
+
+    let statsText = '';
+    if (comparisonStats) {
+        statsText = `**Sys vs AppScript Match:** ${comparisonStats.matchPct}%\n\n`;
+        statsText += `- 🟢 Matched Fields: ${comparisonStats.matchFields}\n`;
+        statsText += `- 🔴 Diff Fields: ${comparisonStats.diffFields}\n`;
+        statsText += `- ⚠️ Missing in Sys: ${comparisonStats.missingInSys}\n`;
+    }
+
+    const card = {
+        type: 'message',
+        attachments: [
+            {
+                contentType: 'application/vnd.microsoft.card.adaptive',
+                content: {
+                    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+                    type: 'AdaptiveCard',
+                    version: '1.4',
+                    body: [
+                        {
+                            type: 'TextBlock',
+                            text: `🕵️‍♂️ Daily FX Verification — ${rateDate}`,
+                            weight: 'Bolder',
+                            size: 'Medium',
+                        },
+                        {
+                            type: 'TextBlock',
+                            text: completenessText,
+                            wrap: true,
+                        },
+                        {
+                            type: 'TextBlock',
+                            text: statsText,
+                            wrap: true,
+                        }
+                    ],
+                    actions: [
+                        {
+                            type: 'Action.OpenUrl',
+                            title: '📊 View Dashboard',
+                            url: 'https://fxrate-aa.vercel.app/'
+                        }
+                    ]
+                },
+            },
+        ],
+    };
+
+    try {
+        await fetch(WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(card),
+        });
+    } catch (err) {
+        console.error('Teams verification notification failed:', err);
+    }
+}

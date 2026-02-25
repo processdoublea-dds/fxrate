@@ -6,6 +6,8 @@ on:
     - cron: '*/10 0-1 * * 1-5'
     # Run BOT/Bloomberg fetch at exactly 00:30 UTC (07:30 BKK time) Monday-Friday
     - cron: '30 0 * * 1-5'
+    # Run Daily Verification & Comparison at exactly 01:55 UTC (08:55 BKK time) Monday-Friday
+    - cron: '55 1 * * 1-5'
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
@@ -19,9 +21,23 @@ jobs:
         run: |
           curl -H "Authorization: Bearer $CRON_SECRET" "https://fxrate-aa.vercel.app/api/fetch-thai-banks"
           
-      - name: Hit BOT and Bloomberg API
+      - name: Hit BOT API
         if: github.event.schedule == '30 0 * * 1-5' || github.event_name == 'workflow_dispatch'
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -H "Authorization: Bearer $CRON_SECRET" "https://fxrate-aa.vercel.app/api/fetch-bot-bloomberg"
+          curl -H "Authorization: Bearer $CRON_SECRET" "https://fxrate-aa.vercel.app/api/fetch-bot"
+
+      - name: Hit Bloomberg API
+        if: github.event.schedule == '30 0 * * 1-5' || github.event_name == 'workflow_dispatch'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -H "Authorization: Bearer $CRON_SECRET" "https://fxrate-aa.vercel.app/api/fetch-bloomberg"
+
+      - name: Hit Daily Verification API
+        if: github.event.schedule == '55 1 * * 1-5' || github.event_name == 'workflow_dispatch'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -H "Authorization: Bearer $CRON_SECRET" "https://fxrate-aa.vercel.app/api/verify-daily"
