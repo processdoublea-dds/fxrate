@@ -2,7 +2,7 @@
     "crons": [
         {
             "path": "/api/fetch-thai-banks",
-            "schedule": "*/10 0 * * 1-5"
+            "schedule": "0 0 * * 1-5"
         },
         {
             "path": "/api/fetch-bot",
