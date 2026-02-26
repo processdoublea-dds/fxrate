@@ -6,16 +6,26 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 // Server-side client with service role key (bypasses RLS)
 export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
-// Check if rate already exists for given date + source
+// Check if rate already exists for given date + source AND the bank_timestamp matches the requested date
 export async function hasRateForToday(source: string, rateDate: string): Promise<boolean> {
     const { data } = await supabaseAdmin
         .from('exchange_rates')
-        .select('id')
+        .select('bank_timestamp')
         .eq('source', source)
         .eq('rate_date', rateDate)
         .limit(1);
 
-    return (data?.length ?? 0) > 0;
+    if (!data || data.length === 0) return false;
+
+    // Check if the timestamp actually indicates an update for today
+    const ts = data[0].bank_timestamp;
+    if (!ts) return false;
+
+    // Convert bank_timestamp to Thai local string YYYY-MM-DD
+    const thaiDatestr = new Date(ts).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+
+    // If the bank's own timestamp is still stuck on a previous date, we shouldn't consider it "fetched for today"
+    return thaiDatestr === rateDate;
 }
 
 // Insert exchange rates (dedup by rate_date+source+currency to avoid ON CONFLICT error)
