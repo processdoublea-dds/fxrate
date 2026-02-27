@@ -214,3 +214,43 @@ export async function notifyTeamsVerification(
         console.error('Teams verification notification failed:', err);
     }
 }
+export async function notifyTeamsHoliday(rateDate: string, holidayName: string) {
+    if (!WEBHOOK_URL) return;
+
+    const card = {
+        type: 'message',
+        attachments: [
+            {
+                contentType: 'application/vnd.microsoft.card.adaptive',
+                content: {
+                    $schema: 'http://adaptivecards.io/schemas/adaptive-card.json',
+                    type: 'AdaptiveCard',
+                    version: '1.4',
+                    body: [
+                        {
+                            type: 'TextBlock',
+                            text: `🏝️ Official Thai Bank Holiday — ${rateDate}`,
+                            weight: 'Bolder',
+                            size: 'Medium',
+                        },
+                        {
+                            type: 'TextBlock',
+                            text: `System skipped fetching FX rates because today is: **${holidayName}**.`,
+                            wrap: true,
+                        },
+                    ],
+                },
+            },
+        ],
+    };
+
+    try {
+        await fetch(WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(card),
+        });
+    } catch (err) {
+        console.error('Teams holiday notification failed:', err);
+    }
+}

@@ -7,13 +7,14 @@ import {
 } from '@/collectors';
 import {
     hasRateForToday,
+    isBankHoliday,
     insertRates,
     insertScrapeLog,
     updateScrapeLog,
     deleteOldScrapeLogs,
     ExchangeRateInsert,
 } from '@/lib/supabase';
-import { notifyTeams, notifyTeamsError } from '@/lib/teams-notify';
+import { notifyTeams, notifyTeamsError, notifyTeamsHoliday } from '@/lib/teams-notify';
 import { getTodayDate } from '@/collectors/base';
 
 // Vercel Cron: */10 1 * * 1-5 (UTC 01:00-01:50 Mon-Fri = Thailand 08:00-08:50)
@@ -45,6 +46,50 @@ export async function GET(request: Request) {
     }
 
     const rateDate = getTodayDate();
+
+    // DEDUP: Check if today is an official bank holiday
+    const holidayName = await isBankHoliday(rateDate);
+    if (holidayName) {
+        console.log(`Today (${rateDate}) is an official holiday: ${holidayName}. Skipping Thai Banks fetch.`);
+
+        // Notify teams only if this is the first execution attempt of the day (e.g., around 07:00)
+        // We can approximate this by checking if we have already sent a skipped log for this date 
+        // to avoid spamming the user every 10 mins.
+        // Actually, since it's simple, just log a generic scrape log and let notifyTeams decide, 
+        // or just notify teams if there isn't a 'holiday_skipped' log today.
+        // For simplicity, we can do a quick check:
+        const alreadyNotified = await hasRateForToday('Bank Holiday System', rateDate);
+        if (!alreadyNotified) {
+            await notifyTeamsHoliday(rateDate, holidayName);
+            await insertScrapeLog({
+                run_id: generateRunId(),
+                source: 'Bank Holiday System',
+                status: 'skipped',
+                started_at: new Date().toISOString(),
+                completed_at: new Date().toISOString(),
+                records_count: 0,
+                duration_ms: 0,
+                error_message: `Skipped due to holiday: ${holidayName}`
+            });
+            // Insert a generic tracker to deduplicate notifications for the rest of the day
+            await insertRates([{
+                run_id: generateRunId(),
+                source: 'Bank Holiday System',
+                currency: 'HOLIDAY',
+                buy_tt: 0,
+                sell_tt: 0,
+                rate_date: rateDate,
+                bank_timestamp: new Date().toISOString()
+            }]);
+        }
+
+        return NextResponse.json({
+            success: true,
+            holiday: holidayName,
+            status: 'holiday_skipped'
+        });
+    }
+
     const summaries: FetchSummary[] = [];
     const allRates: ExchangeRateInsert[] = [];
     let newDataFetched = false;

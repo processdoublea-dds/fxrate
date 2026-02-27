@@ -6,6 +6,24 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 // Server-side client with service role key (bypasses RLS)
 export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
+/**
+ * Check if a specific date is a bank holiday.
+ * Returns the description of the holiday if it is, null otherwise.
+ */
+export async function isBankHoliday(dateStr: string): Promise<string | null> {
+    const { data, error } = await supabaseAdmin
+        .from('bank_holidays')
+        .select('description')
+        .eq('holiday_date', dateStr)
+        .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 is "No rows found"
+        console.error('Error checking for bank holiday:', error);
+    }
+
+    return data ? data.description : null;
+}
+
 // Check if rate already exists for given date + source AND the bank_timestamp matches the requested date
 export async function hasRateForToday(source: string, rateDate: string): Promise<boolean> {
     const { data } = await supabaseAdmin
