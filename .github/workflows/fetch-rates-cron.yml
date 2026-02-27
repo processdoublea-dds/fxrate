@@ -8,6 +8,8 @@ on:
     - cron: '30 0 * * 1-5'
     # Run Daily Verification & Comparison at exactly 02:55 UTC (09:55 BKK time) Monday-Friday
     - cron: '55 2 * * 1-5'
+    # Sync next year's official Thai Bank holidays every Sunday in December at 00:00 UTC
+    - cron: '0 0 * 12 0'
   workflow_dispatch: # Allows manual trigger from GitHub UI
 
 jobs:
@@ -41,3 +43,12 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           curl -H "Authorization: Bearer $CRON_SECRET" "https://fxrate-aa.vercel.app/api/verify-daily"
+          
+      - name: Sync Bank Holidays (Next Year)
+        if: github.event.schedule == '0 0 * 12 0' || github.event_name == 'workflow_dispatch'
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          NEXT_YEAR=$(( $(date +%Y) + 1 ))
+          echo "Syncing holidays for $NEXT_YEAR..."
+          curl -H "Authorization: Bearer $CRON_SECRET" "https://fxrate-aa.vercel.app/api/sync-holidays?year=$NEXT_YEAR"
