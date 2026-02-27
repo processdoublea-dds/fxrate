@@ -130,26 +130,36 @@ async function fetchSource(
 
     try {
         const result = await collector.fetch();
+        let fetchedRates = result.rates;
+
+        // Ensure we only insert rates that actually belong to today (or newer).
+        // If the bank's website hasn't updated yet and still shows yesterday's timestamp, discard them.
+        fetchedRates = fetchedRates.filter(r => {
+            if (!r.bank_timestamp) return true; // keep if no timestamp given
+            const bankDate = new Date(r.bank_timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+            return bankDate >= result.rateDate;
+        });
+
         const durationMs = Date.now() - startMs;
 
-        if (result.rates.length > 0) {
-            await insertRates(result.rates);
-            allRates.push(...result.rates);
+        if (fetchedRates.length > 0) {
+            await insertRates(fetchedRates);
+            allRates.push(...fetchedRates);
         }
 
         if (logId) {
             await updateScrapeLog(logId, {
-                status: result.rates.length > 0 ? 'success' : 'partial',
+                status: fetchedRates.length > 0 ? 'success' : 'skipped',
                 completed_at: new Date().toISOString(),
-                records_count: result.rates.length,
+                records_count: fetchedRates.length,
                 duration_ms: durationMs,
             });
         }
 
         return {
             source: collector.name,
-            status: result.rates.length > 0 ? 'success' : 'partial',
-            recordsCount: result.rates.length,
+            status: fetchedRates.length > 0 ? 'success' : 'skipped',
+            recordsCount: fetchedRates.length,
             durationMs,
         };
     } catch (err) {

@@ -109,7 +109,7 @@ export interface ExchangeRateInsert {
 export interface ScrapeLogInsert {
     run_id: string;
     source: string;
-    status: 'success' | 'failed' | 'partial' | 'running';
+    status: 'success' | 'failed' | 'partial' | 'running' | 'skipped';
     started_at?: string;
     completed_at?: string;
     records_count?: number;
