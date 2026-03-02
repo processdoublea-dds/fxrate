@@ -8,7 +8,6 @@ import {
     ExchangeRateInsert,
 } from '@/lib/supabase';
 import { notifyTeams, notifyTeamsError } from '@/lib/teams-notify';
-import { getPreviousBusinessDate } from '@/collectors/base';
 
 // Vercel Cron: 30 1 * * 1-5 (UTC 01:30 Mon-Fri = Thailand 08:30)
 export const maxDuration = 120; // seconds
@@ -20,6 +19,7 @@ interface FetchSummary {
     recordsCount: number;
     durationMs: number;
     errorMessage?: string;
+    rateDate?: string;
 }
 
 export async function GET(request: Request) {
@@ -36,13 +36,14 @@ export async function GET(request: Request) {
     const allRates: ExchangeRateInsert[] = [];
     let newDataFetched = false;
 
-    // BOT uses the previous business date
-    const rateDate = getPreviousBusinessDate();
-
-    // BOT
-    const botSummary = await fetchSourceWithRetryAndDedup(new BotCollector(), allRates, rateDate, 3);
+    // BOT: rate_date is determined by the API response (whatever date BOT publishes)
+    // No need to pre-calculate — the collector extracts from the `period` field
+    const botSummary = await fetchBotWithRetry(new BotCollector(), allRates, 3);
     summaries.push(botSummary);
     if (botSummary.status === 'success') newDataFetched = true;
+
+    // Use the rate date from the actual fetched data for notification
+    const rateDate = botSummary.rateDate || 'unknown';
 
     // Only send notification if we actually fetched something new or failed
     if (newDataFetched || botSummary.status === 'failed') {
@@ -55,29 +56,17 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
         success: true,
+        rateDate,
         summaries,
         totalRates: allRates.length,
     });
 }
 
-async function fetchSourceWithRetryAndDedup(
+async function fetchBotWithRetry(
     collector: { name: string; fetch: () => Promise<{ rates: ExchangeRateInsert[]; rateDate: string }> },
     allRates: ExchangeRateInsert[],
-    rateDate: string,
     maxRetries: number = 3
 ): Promise<FetchSummary> {
-
-    const alreadyFetched = await hasRateForToday(collector.name, rateDate);
-
-    if (alreadyFetched) {
-        console.log(`${collector.name} already fetched for ${rateDate}, skipping`);
-        return {
-            source: collector.name,
-            status: 'skipped',
-            recordsCount: 0,
-            durationMs: 0
-        };
-    }
 
     const runId = generateRunId();
     const startedAt = new Date().toISOString();
@@ -105,8 +94,33 @@ async function fetchSourceWithRetryAndDedup(
         try {
             const result = await collector.fetch();
             const durationMs = Date.now() - startMs;
+            const rateDate = result.rateDate;
 
             if (result.rates.length > 0) {
+                // Dedup check: only insert if we don't already have this date's data
+                const alreadyFetched = await hasRateForToday(collector.name, rateDate);
+                if (alreadyFetched) {
+                    console.log(`[${collector.name}] Already have data for ${rateDate}, skipping insert`);
+
+                    if (logId) {
+                        await updateScrapeLog(logId, {
+                            status: 'skipped',
+                            completed_at: new Date().toISOString(),
+                            records_count: 0,
+                            duration_ms: durationMs,
+                            error_message: `Data for ${rateDate} already exists`,
+                        });
+                    }
+
+                    return {
+                        source: collector.name,
+                        status: 'skipped',
+                        recordsCount: 0,
+                        durationMs,
+                        rateDate,
+                    };
+                }
+
                 await insertRates(result.rates);
                 allRates.push(...result.rates);
 
@@ -124,6 +138,7 @@ async function fetchSourceWithRetryAndDedup(
                     status: 'success',
                     recordsCount: result.rates.length,
                     durationMs,
+                    rateDate,
                 };
             } else {
                 // Returns 0 rates, might be a soft failure, let's retry if we have attempts left

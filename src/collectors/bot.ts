@@ -11,7 +11,6 @@ export class BotCollector implements Collector {
 
     async fetch(): Promise<CollectorResult> {
         const runId = generateRunId();
-        const rateDate = getPreviousBusinessDate();
 
         const { data } = await axios.get(BOT_URL, {
             headers: {
@@ -27,6 +26,12 @@ export class BotCollector implements Collector {
         // BOT JSON structure: parse the response
         // The JSON has a nested structure — we need to adapt to actual format
         const items = this.parseItems(data);
+
+        // Extract rate_date from the API response's period field
+        // All items share the same period date — use whatever BOT returns
+        // Fall back to getPreviousBusinessDate() only if no period found
+        const rateDate = items[0]?.timestamp?.split(' ')[0] || getPreviousBusinessDate();
+        console.log(`[BOT] API returned rate date: ${rateDate}`);
 
         for (const item of items) {
             const currency = item.currency?.toUpperCase();
