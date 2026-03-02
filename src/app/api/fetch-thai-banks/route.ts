@@ -17,7 +17,7 @@ import {
 import { notifyTeams, notifyTeamsError, notifyTeamsHoliday } from '@/lib/teams-notify';
 import { getTodayDate } from '@/collectors/base';
 
-// Vercel Cron: */10 1 * * 1-5 (UTC 01:00-01:50 Mon-Fri = Thailand 08:00-08:50)
+// Vercel Cron: */10 0-1 * * 1-5 (UTC 00:00-01:59 Mon-Fri = Thailand 07:00-08:59)
 export const maxDuration = 120; // seconds
 export const dynamic = 'force-dynamic';
 
@@ -95,24 +95,7 @@ export async function GET(request: Request) {
     let newDataFetched = false;
 
     for (const collector of BANK_COLLECTORS) {
-        // DEDUP: Check if rate already exists for today
-        const alreadyFetched = await hasRateForToday(collector.name, rateDate);
-
-        if (alreadyFetched) {
-            summaries.push({
-                source: collector.name,
-                status: 'skipped',
-                recordsCount: 0,
-                durationMs: 0,
-            });
-            console.log(
-                `${collector.name} already fetched for ${rateDate}, skipping`
-            );
-            continue;
-        }
-
-        // Fetch new rates
-        const summary = await fetchSource(collector, allRates);
+        const summary = await fetchSourceWithRetryAndDedup(collector, allRates, rateDate, 3);
         summaries.push(summary);
 
         if (summary.status === 'success') {
@@ -149,18 +132,33 @@ export async function GET(request: Request) {
     });
 }
 
-async function fetchSource(
+async function fetchSourceWithRetryAndDedup(
     collector: {
         name: string;
         fetch: () => Promise<{ rates: ExchangeRateInsert[]; rateDate: string }>;
     },
-    allRates: ExchangeRateInsert[]
+    allRates: ExchangeRateInsert[],
+    rateDate: string,
+    maxRetries: number = 3
 ): Promise<FetchSummary> {
+
+    // DEDUP: Check if rate already exists for today
+    const alreadyFetched = await hasRateForToday(collector.name, rateDate);
+    if (alreadyFetched) {
+        console.log(`${collector.name} already fetched for ${rateDate}, skipping`);
+        return {
+            source: collector.name,
+            status: 'skipped',
+            recordsCount: 0,
+            durationMs: 0,
+        };
+    }
+
     const runId = generateRunId();
     const startedAt = new Date().toISOString();
-    const startMs = Date.now();
-
+    let startMs = Date.now();
     let logId: number | null = null;
+
     try {
         const log = await insertScrapeLog({
             run_id: runId,
@@ -173,61 +171,76 @@ async function fetchSource(
         console.error(`Failed to create scrape log for ${collector.name}:`, err);
     }
 
-    try {
-        const result = await collector.fetch();
-        let fetchedRates = result.rates;
+    let attempt = 0;
+    while (attempt < maxRetries) {
+        attempt++;
+        startMs = Date.now();
+        console.log(`[${collector.name}] Fetch attempt ${attempt}/${maxRetries}...`);
 
-        // Ensure we only insert rates that actually belong to today (or newer).
-        // If the bank's website hasn't updated yet and still shows yesterday's timestamp, discard them.
-        fetchedRates = fetchedRates.filter(r => {
-            if (!r.bank_timestamp) return true; // keep if no timestamp given
-            const bankDate = new Date(r.bank_timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
-            return bankDate >= result.rateDate;
-        });
+        try {
+            const result = await collector.fetch();
+            let fetchedRates = result.rates;
 
-        const durationMs = Date.now() - startMs;
-
-        if (fetchedRates.length > 0) {
-            await insertRates(fetchedRates);
-            allRates.push(...fetchedRates);
-        }
-
-        if (logId) {
-            await updateScrapeLog(logId, {
-                status: fetchedRates.length > 0 ? 'success' : 'skipped',
-                completed_at: new Date().toISOString(),
-                records_count: fetchedRates.length,
-                duration_ms: durationMs,
+            // Ensure we only insert rates that actually belong to today (or newer).
+            // If the bank's website hasn't updated yet and still shows yesterday's timestamp, discard them.
+            fetchedRates = fetchedRates.filter(r => {
+                if (!r.bank_timestamp) return true;
+                const bankDate = new Date(r.bank_timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+                return bankDate >= result.rateDate;
             });
+
+            const durationMs = Date.now() - startMs;
+
+            if (fetchedRates.length > 0) {
+                await insertRates(fetchedRates);
+                allRates.push(...fetchedRates);
+
+                if (logId) {
+                    await updateScrapeLog(logId, {
+                        status: 'success',
+                        completed_at: new Date().toISOString(),
+                        records_count: fetchedRates.length,
+                        duration_ms: durationMs,
+                    });
+                }
+
+                return {
+                    source: collector.name,
+                    status: 'success',
+                    recordsCount: fetchedRates.length,
+                    durationMs,
+                };
+            } else {
+                // Returns 0 rates (bank timestamp still yesterday), retry if attempts left
+                console.warn(`[${collector.name}] Returns 0 valid rates on attempt ${attempt} (bank may not have updated yet)`);
+            }
+        } catch (err) {
+            console.error(`[${collector.name}] Error on attempt ${attempt}:`, err);
         }
 
-        return {
-            source: collector.name,
-            status: fetchedRates.length > 0 ? 'success' : 'skipped',
-            recordsCount: fetchedRates.length,
-            durationMs,
-        };
-    } catch (err) {
-        const durationMs = Date.now() - startMs;
-        const errorMessage = err instanceof Error ? err.message : String(err);
-
-        if (logId) {
-            await updateScrapeLog(logId, {
-                status: 'failed',
-                completed_at: new Date().toISOString(),
-                error_message: errorMessage,
-                duration_ms: durationMs,
-            });
+        // Wait before retry
+        if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 5000));
         }
-
-        await notifyTeamsError(collector.name, errorMessage);
-
-        return {
-            source: collector.name,
-            status: 'failed',
-            recordsCount: 0,
-            durationMs,
-            errorMessage,
-        };
     }
+
+    const durationMs = Date.now() - startMs;
+    const errorMessage = `Exhausted ${maxRetries} retries for ${collector.name} — bank rates may not be published yet`;
+
+    if (logId) {
+        await updateScrapeLog(logId, {
+            status: 'skipped',
+            completed_at: new Date().toISOString(),
+            error_message: errorMessage,
+            records_count: 0,
+            duration_ms: durationMs,
+        });
+    }
+
+    return {
+        source: collector.name,
+        status: 'skipped',
+        recordsCount: 0,
+        durationMs,
+    };
 }

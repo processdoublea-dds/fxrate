@@ -38,7 +38,8 @@ export async function GET(request: NextRequest) {
     const { data: botRates, error: botError } = await supabaseAdmin
         .from('exchange_rates')
         .select('id, run_id, rate_date, source, currency, currency_label, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, mid_rate, bank_timestamp, fetched_at')
-        .in('rate_date', [date, botDate])
+        .gte('rate_date', botDate)
+        .lte('rate_date', date)
         .in('source', ['BOT', 'BLOOMBERG'])
         .order('source')
         .order('currency');
