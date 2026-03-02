@@ -5,11 +5,7 @@
             "schedule": "*/10 0-1 * * 1-5"
         },
         {
-            "path": "/api/fetch-bot",
-            "schedule": "30 0 * * 1-5"
-        },
-        {
-            "path": "/api/fetch-bloomberg",
+            "path": "/api/fetch-bot-bloomberg",
             "schedule": "30 0 * * 1-5"
         }
     ]
