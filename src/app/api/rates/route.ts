@@ -13,12 +13,18 @@ function getPreviousBusinessDate(dateStr: string): string {
     return d.toISOString().split('T')[0];
 }
 
+/**
+ * Get a date N days before the given date
+ */
+function getLookbackDate(dateStr: string, days: number): string {
+    const d = new Date(dateStr + 'T12:00:00');
+    d.setDate(d.getDate() - days);
+    return d.toISOString().split('T')[0];
+}
+
 export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date') || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
-
-    // BOT + Bloomberg use the previous business date
-    const botDate = getPreviousBusinessDate(date);
 
     // Fetch Thai bank rates for today
     const { data: bankRates, error: bankError } = await supabaseAdmin
@@ -33,12 +39,15 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: bankError.message }, { status: 500 });
     }
 
-    // Fetch BOT + Bloomberg rates — check BOTH current date AND previous business date
-    // (BOT collector may store rate_date as today or as the previous business date)
+    // BOT rate_date comes from the API and may be older than previous business day
+    // (e.g. on holidays). Look back up to 7 calendar days to find the latest BOT rate.
+    const lookbackDate = getLookbackDate(date, 7);
+
+    // Fetch BOT + Bloomberg rates within the lookback window
     const { data: botRates, error: botError } = await supabaseAdmin
         .from('exchange_rates')
         .select('id, run_id, rate_date, source, currency, currency_label, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, mid_rate, bank_timestamp, fetched_at')
-        .gte('rate_date', botDate)
+        .gte('rate_date', lookbackDate)
         .lte('rate_date', date)
         .in('source', ['BOT', 'BLOOMBERG'])
         .order('source')
@@ -48,8 +57,13 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: botError.message }, { status: 500 });
     }
 
-    // Deduplicate BOT rates — if same currency exists for both dates, prefer current date
+    // Deduplicate BOT rates — if same currency exists for multiple dates, prefer latest
     const botDeduped = deduplicateRates(botRates || []);
+
+    // Derive actual botDate from the data (latest rate_date among BOT records)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const botDates = botDeduped.filter((r: any) => r.source === 'BOT').map((r: any) => r.rate_date);
+    const botDate = botDates.length > 0 ? botDates.sort().reverse()[0] : getPreviousBusinessDate(date);
 
     // Combine all rates
     const allRates = [...(bankRates || []), ...botDeduped];
