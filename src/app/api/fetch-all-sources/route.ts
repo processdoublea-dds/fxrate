@@ -101,9 +101,9 @@ export async function GET(request: NextRequest) {
     summaries.push(botSummary);
     if (botSummary.status === 'success') newDataFetched = true;
 
-    // ── Bloomberg (no dedup, upsert handles it) ──
+    // Bloomberg saves as source="BOT" with BTN/MNT — dedup by checking BTN
     const bloombergSummary = await fetchWithRetry(
-        new BloombergCollector(), allRates, 2, false
+        new BloombergCollector(), allRates, 2, true, 'BTN'
     );
     summaries.push(bloombergSummary);
     if (bloombergSummary.status === 'success') newDataFetched = true;
