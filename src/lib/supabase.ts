@@ -25,13 +25,19 @@ export async function isBankHoliday(dateStr: string): Promise<string | null> {
 }
 
 // Check if rate already exists for given date + source AND the bank_timestamp matches the requested date
-export async function hasRateForToday(source: string, rateDate: string): Promise<boolean> {
-    const { data } = await supabaseAdmin
+// Optional currency filter to avoid dedup clashes (e.g. Bloomberg saves BTN/MNT as source='BOT')
+export async function hasRateForToday(source: string, rateDate: string, currency?: string): Promise<boolean> {
+    let query = supabaseAdmin
         .from('exchange_rates')
         .select('bank_timestamp')
         .eq('source', source)
-        .eq('rate_date', rateDate)
-        .limit(1);
+        .eq('rate_date', rateDate);
+
+    if (currency) {
+        query = query.eq('currency', currency);
+    }
+
+    const { data } = await query.limit(1);
 
     if (!data || data.length === 0) return false;
 

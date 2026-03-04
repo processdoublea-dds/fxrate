@@ -39,7 +39,8 @@ export async function GET(request: Request) {
 
     // === BOT ===
     // rate_date is determined by the API response (whatever date BOT publishes)
-    const botSummary = await fetchWithRetry(new BotCollector(), allRates, 3, true);
+    // Use 'USD' for dedup to avoid clash with Bloomberg (which saves BTN/MNT as source='BOT')
+    const botSummary = await fetchWithRetry(new BotCollector(), allRates, 3, true, 'USD');
     summaries.push(botSummary);
     if (botSummary.status === 'success') newDataFetched = true;
 
@@ -74,7 +75,8 @@ async function fetchWithRetry(
     collector: { name: string; fetch: () => Promise<{ rates: ExchangeRateInsert[]; rateDate: string }> },
     allRates: ExchangeRateInsert[],
     maxRetries: number = 3,
-    enableDedup: boolean = true
+    enableDedup: boolean = true,
+    dedupCurrency?: string
 ): Promise<FetchSummary> {
 
     const runId = generateRunId();
@@ -108,7 +110,7 @@ async function fetchWithRetry(
             if (result.rates.length > 0) {
                 // Dedup check (for BOT): only insert if we don't already have this date's data
                 if (enableDedup) {
-                    const alreadyFetched = await hasRateForToday(collector.name, rateDate);
+                    const alreadyFetched = await hasRateForToday(collector.name, rateDate, dedupCurrency);
                     if (alreadyFetched) {
                         console.log(`[${collector.name}] Already have data for ${rateDate}, skipping insert`);
 
