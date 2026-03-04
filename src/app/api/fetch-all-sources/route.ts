@@ -101,10 +101,23 @@ export async function GET(request: NextRequest) {
     summaries.push(botSummary);
     if (botSummary.status === 'success') newDataFetched = true;
 
-    // Bloomberg saves as source="BOT" with BTN/MNT — dedup by checking BTN
-    const bloombergSummary = await fetchWithRetry(
-        new BloombergCollector(), allRates, 2, true, 'BTN'
-    );
+    // ── Bloomberg (check both BTN and MNT before calling BrowserAct) ──
+    // Bloomberg runs 3 separate BrowserAct workflows (USDTHB, USDMNT, USDMNT)
+    // then calculates cross rates → stores BTN and MNT as source="BOT"
+    const bloombergRateDate = botSummary.rateDate || todayDate;
+    const hasBTN = await hasRateForToday('BOT', bloombergRateDate, 'BTN');
+    const hasMNT = await hasRateForToday('BOT', bloombergRateDate, 'MNT');
+
+    let bloombergSummary: FetchSummary;
+    if (hasBTN && hasMNT) {
+        console.log('[BLOOMBERG] Both BTN and MNT exist, skipping');
+        bloombergSummary = { source: 'BLOOMBERG', status: 'skipped', recordsCount: 0, durationMs: 0, rateDate: bloombergRateDate };
+    } else {
+        console.log(`[BLOOMBERG] Missing: ${!hasBTN ? 'BTN ' : ''}${!hasMNT ? 'MNT' : ''} — fetching...`);
+        bloombergSummary = await fetchWithRetry(
+            new BloombergCollector(), allRates, 2, false
+        );
+    }
     summaries.push(bloombergSummary);
     if (bloombergSummary.status === 'success') newDataFetched = true;
 
