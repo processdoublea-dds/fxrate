@@ -8,6 +8,7 @@ import {
     generateRunId,
     getTodayDate,
 } from '@/collectors';
+import { getYesterdayDate } from '@/collectors/base';
 import {
     hasRateForToday,
     isBankHoliday,
@@ -19,9 +20,9 @@ import {
 } from '@/lib/supabase';
 import { notifyTeams, notifyTeamsError, notifyTeamsHoliday } from '@/lib/teams-notify';
 
-// Unified endpoint for all 5 sources
-// Called by Google Apps Script trigger every 15 min (07:45-09:00 ICT)
-// Also used as Vercel Cron backup
+// Backward-compatible endpoint — runs all sources in parallel
+// Prefer using individual endpoints (/api/fetch-bot, /api/fetch-bloomberg, /api/fetch-thai-banks)
+// via GAS fetchAll for better timeout isolation.
 export const maxDuration = 120; // seconds
 export const dynamic = 'force-dynamic';
 
@@ -55,7 +56,6 @@ export async function GET(request: NextRequest) {
     // ── Check Holiday ──
     const holidayName = await isBankHoliday(todayDate);
     if (holidayName) {
-        // Holiday skip for Thai banks (BOT + Bloomberg still run)
         console.log(`Today (${todayDate}) is a holiday: ${holidayName}. Skipping Thai Banks.`);
 
         const alreadyNotified = await hasRateForToday('Bank Holiday System', todayDate);
@@ -82,7 +82,6 @@ export async function GET(request: NextRequest) {
             }]);
         }
 
-        // Add skipped summaries for Thai banks
         for (const name of ['SCB', 'KTB', 'KBANK']) {
             summaries.push({
                 source: name,
@@ -94,50 +93,89 @@ export async function GET(request: NextRequest) {
         }
     }
 
-    // ── BOT (rate_date from API, dedup by USD) ──
-    const botSummary = await fetchWithRetry(
-        new BotCollector(), allRates, 3, true, 'USD'
-    );
-    summaries.push(botSummary);
-    if (botSummary.status === 'success') newDataFetched = true;
-
-    // ── Bloomberg (check both BTN and MNT before calling BrowserAct) ──
-    // Bloomberg runs 3 separate BrowserAct workflows (USDTHB, USDMNT, USDMNT)
-    // then calculates cross rates → stores BTN and MNT as source="BOT"
-    const bloombergRateDate = botSummary.rateDate || todayDate;
+    // ── Determine Bloomberg rateDate independently ──
+    // Bloomberg always uses yesterday's calendar date (not previous business date)
+    const bloombergRateDate = getYesterdayDate();
     const hasBTN = await hasRateForToday('BOT', bloombergRateDate, 'BTN');
     const hasMNT = await hasRateForToday('BOT', bloombergRateDate, 'MNT');
 
-    let bloombergSummary: FetchSummary;
+    // ── Build parallel tasks ──
+    interface TaskResult {
+        summary: FetchSummary;
+        rates: ExchangeRateInsert[];
+    }
+
+    const tasks: { key: string; promise: Promise<TaskResult> }[] = [];
+
+    // BOT (always runs)
+    tasks.push({
+        key: 'bot',
+        promise: (async () => {
+            const localRates: ExchangeRateInsert[] = [];
+            const summary = await fetchWithRetry(new BotCollector(), localRates, 3, true, 'USD');
+            return { summary, rates: localRates };
+        })(),
+    });
+
+    // Bloomberg (skip if both BTN and MNT exist)
     if (hasBTN && hasMNT) {
         console.log('[BLOOMBERG] Both BTN and MNT exist, skipping');
-        bloombergSummary = { source: 'BLOOMBERG', status: 'skipped', recordsCount: 0, durationMs: 0, rateDate: bloombergRateDate };
+        summaries.push({ source: 'BLOOMBERG', status: 'skipped', recordsCount: 0, durationMs: 0, rateDate: bloombergRateDate });
     } else {
         console.log(`[BLOOMBERG] Missing: ${!hasBTN ? 'BTN ' : ''}${!hasMNT ? 'MNT' : ''} — fetching...`);
-        bloombergSummary = await fetchWithRetry(
-            new BloombergCollector(), allRates, 2, false
-        );
+        tasks.push({
+            key: 'bloomberg',
+            promise: (async () => {
+                const localRates: ExchangeRateInsert[] = [];
+                const summary = await fetchWithRetry(new BloombergCollector(), localRates, 2, false);
+                return { summary, rates: localRates };
+            })(),
+        });
     }
-    summaries.push(bloombergSummary);
-    if (bloombergSummary.status === 'success') newDataFetched = true;
 
-    // ── Thai Banks (only if not holiday) ──
+    // Thai Banks (only if not holiday)
     if (!holidayName) {
         for (const CollectorClass of [ScbCollector, KtbCollector, KbankCollector]) {
-            const collector = new CollectorClass();
-            const summary = await fetchBankWithRetry(collector, allRates, todayDate, 3);
-            summaries.push(summary);
-            if (summary.status === 'success') newDataFetched = true;
+            tasks.push({
+                key: CollectorClass.name,
+                promise: (async () => {
+                    const collector = new CollectorClass();
+                    const localRates: ExchangeRateInsert[] = [];
+                    const summary = await fetchBankWithRetry(collector, localRates, todayDate, 3);
+                    return { summary, rates: localRates };
+                })(),
+            });
+        }
+    }
+
+    // ── Run ALL tasks in parallel ──
+    const results = await Promise.allSettled(tasks.map(t => t.promise));
+
+    for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        if (result.status === 'fulfilled') {
+            summaries.push(result.value.summary);
+            allRates.push(...result.value.rates);
+            if (result.value.summary.status === 'success') newDataFetched = true;
+        } else {
+            console.error(`Task ${tasks[i].key} rejected:`, result.reason);
+            summaries.push({
+                source: tasks[i].key.toUpperCase(),
+                status: 'failed',
+                recordsCount: 0,
+                durationMs: 0,
+                errorMessage: String(result.reason),
+            });
         }
     }
 
     // ── Determine overall status ──
     const allComplete = summaries.every(s => s.status === 'success' || s.status === 'skipped');
     const hasFailed = summaries.some(s => s.status === 'failed');
-    const rateDate = botSummary.rateDate || todayDate;
+    const botSummary = summaries.find(s => s.source === 'BOT');
+    const rateDate = botSummary?.rateDate || todayDate;
 
     // ── Notifications ──
-    // Per-round: only if something new happened or failed
     if (newDataFetched || hasFailed) {
         try {
             await notifyTeams(summaries, allRates, rateDate);
@@ -146,9 +184,7 @@ export async function GET(request: NextRequest) {
         }
     }
 
-    // Final summary: when GAS sends final=true OR all sources complete
     if (isFinalRound || (allComplete && !newDataFetched)) {
-        // All sources already fetched — send a clean summary
         try {
             await notifyFinalSummary(summaries, rateDate, todayDate);
         } catch (err) {
@@ -156,7 +192,6 @@ export async function GET(request: NextRequest) {
         }
     }
 
-    // Periodic cleanup (only on first successful round)
     if (newDataFetched) {
         try {
             const deleted = await deleteOldScrapeLogs(60);
@@ -215,14 +250,20 @@ async function fetchWithRetry(
                     const alreadyFetched = await hasRateForToday(collector.name, rateDate, dedupCurrency);
                     if (alreadyFetched) {
                         console.log(`[${collector.name}] Already have data for ${rateDate}, skipping`);
-                        if (logId) await updateScrapeLog(logId, { status: 'skipped', completed_at: new Date().toISOString(), records_count: 0, duration_ms: durationMs, error_message: `Data for ${rateDate} already exists` });
+                        if (logId) {
+                            try { await updateScrapeLog(logId, { status: 'skipped', completed_at: new Date().toISOString(), records_count: 0, duration_ms: durationMs, error_message: `Data for ${rateDate} already exists` }); }
+                            catch (e) { console.error(`Failed to update scrape log:`, e); }
+                        }
                         return { source: collector.name, status: 'skipped', recordsCount: 0, durationMs, rateDate };
                     }
                 }
 
                 await insertRates(result.rates);
                 allRates.push(...result.rates);
-                if (logId) await updateScrapeLog(logId, { status: 'success', completed_at: new Date().toISOString(), records_count: result.rates.length, duration_ms: durationMs });
+                if (logId) {
+                    try { await updateScrapeLog(logId, { status: 'success', completed_at: new Date().toISOString(), records_count: result.rates.length, duration_ms: durationMs }); }
+                    catch (e) { console.error(`Failed to update scrape log:`, e); }
+                }
                 return { source: collector.name, status: 'success', recordsCount: result.rates.length, durationMs, rateDate };
             } else {
                 console.warn(`[${collector.name}] Returns 0 rates on attempt ${attempt}`);
@@ -236,7 +277,10 @@ async function fetchWithRetry(
 
     const durationMs = Date.now() - startMs;
     const errorMessage = `Exhausted ${maxRetries} retries for ${collector.name}`;
-    if (logId) await updateScrapeLog(logId, { status: 'failed', completed_at: new Date().toISOString(), error_message: errorMessage, duration_ms: durationMs });
+    if (logId) {
+        try { await updateScrapeLog(logId, { status: 'failed', completed_at: new Date().toISOString(), error_message: errorMessage, duration_ms: durationMs }); }
+        catch (e) { console.error(`Failed to update scrape log:`, e); }
+    }
     await notifyTeamsError(collector.name, errorMessage);
     return { source: collector.name, status: 'failed', recordsCount: 0, durationMs, errorMessage };
 }
@@ -248,7 +292,6 @@ async function fetchBankWithRetry(
     rateDate: string,
     maxRetries: number
 ): Promise<FetchSummary> {
-    // Dedup: check DB first
     const alreadyFetched = await hasRateForToday(collector.name, rateDate);
     if (alreadyFetched) {
         console.log(`[${collector.name}] Already fetched for ${rateDate}, skipping`);
@@ -277,7 +320,6 @@ async function fetchBankWithRetry(
 
         try {
             const result = await collector.fetch();
-            // Filter out rates where bank_timestamp is still yesterday
             let fetchedRates = result.rates.filter(r => {
                 if (!r.bank_timestamp) return true;
                 const bankDate = new Date(r.bank_timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
@@ -289,7 +331,10 @@ async function fetchBankWithRetry(
             if (fetchedRates.length > 0) {
                 await insertRates(fetchedRates);
                 allRates.push(...fetchedRates);
-                if (logId) await updateScrapeLog(logId, { status: 'success', completed_at: new Date().toISOString(), records_count: fetchedRates.length, duration_ms: durationMs });
+                if (logId) {
+                    try { await updateScrapeLog(logId, { status: 'success', completed_at: new Date().toISOString(), records_count: fetchedRates.length, duration_ms: durationMs }); }
+                    catch (e) { console.error(`Failed to update scrape log:`, e); }
+                }
                 return { source: collector.name, status: 'success', recordsCount: fetchedRates.length, durationMs };
             } else {
                 console.warn(`[${collector.name}] Returns 0 valid rates on attempt ${attempt}`);
@@ -302,7 +347,10 @@ async function fetchBankWithRetry(
     }
 
     const durationMs = Date.now() - startMs;
-    if (logId) await updateScrapeLog(logId, { status: 'skipped', completed_at: new Date().toISOString(), error_message: `Bank rates may not be published yet`, records_count: 0, duration_ms: durationMs });
+    if (logId) {
+        try { await updateScrapeLog(logId, { status: 'skipped', completed_at: new Date().toISOString(), error_message: `Bank rates may not be published yet`, records_count: 0, duration_ms: durationMs }); }
+        catch (e) { console.error(`Failed to update scrape log:`, e); }
+    }
     return { source: collector.name, status: 'skipped', recordsCount: 0, durationMs };
 }
 

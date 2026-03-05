@@ -90,16 +90,37 @@ export async function GET(request: Request) {
         });
     }
 
-    const summaries: FetchSummary[] = [];
     const allRates: ExchangeRateInsert[] = [];
     let newDataFetched = false;
 
-    for (const collector of BANK_COLLECTORS) {
-        const summary = await fetchSourceWithRetryAndDedup(collector, allRates, rateDate, 3);
-        summaries.push(summary);
+    // Run all bank collectors in PARALLEL (SCB ~5s, KTB ~5s, KBANK BrowserAct ~60-90s)
+    // Each collector gets its own rates array, merged after
+    const results = await Promise.allSettled(
+        BANK_COLLECTORS.map(async (collector) => {
+            const localRates: ExchangeRateInsert[] = [];
+            const summary = await fetchSourceWithRetryAndDedup(collector, localRates, rateDate, 3);
+            return { summary, rates: localRates };
+        })
+    );
 
-        if (summary.status === 'success') {
-            newDataFetched = true;
+    const summaries: FetchSummary[] = [];
+    for (const result of results) {
+        if (result.status === 'fulfilled') {
+            summaries.push(result.value.summary);
+            allRates.push(...result.value.rates);
+            if (result.value.summary.status === 'success') {
+                newDataFetched = true;
+            }
+        } else {
+            // Promise rejected (unexpected) — create a failed summary
+            console.error('Bank collector promise rejected:', result.reason);
+            summaries.push({
+                source: 'UNKNOWN',
+                status: 'failed',
+                recordsCount: 0,
+                durationMs: 0,
+                errorMessage: String(result.reason),
+            });
         }
     }
 
@@ -196,12 +217,16 @@ async function fetchSourceWithRetryAndDedup(
                 allRates.push(...fetchedRates);
 
                 if (logId) {
-                    await updateScrapeLog(logId, {
-                        status: 'success',
-                        completed_at: new Date().toISOString(),
-                        records_count: fetchedRates.length,
-                        duration_ms: durationMs,
-                    });
+                    try {
+                        await updateScrapeLog(logId, {
+                            status: 'success',
+                            completed_at: new Date().toISOString(),
+                            records_count: fetchedRates.length,
+                            duration_ms: durationMs,
+                        });
+                    } catch (logErr) {
+                        console.error(`Failed to update scrape log for ${collector.name}:`, logErr);
+                    }
                 }
 
                 return {
@@ -228,13 +253,17 @@ async function fetchSourceWithRetryAndDedup(
     const errorMessage = `Exhausted ${maxRetries} retries for ${collector.name} — bank rates may not be published yet`;
 
     if (logId) {
-        await updateScrapeLog(logId, {
-            status: 'skipped',
-            completed_at: new Date().toISOString(),
-            error_message: errorMessage,
-            records_count: 0,
-            duration_ms: durationMs,
-        });
+        try {
+            await updateScrapeLog(logId, {
+                status: 'skipped',
+                completed_at: new Date().toISOString(),
+                error_message: errorMessage,
+                records_count: 0,
+                duration_ms: durationMs,
+            });
+        } catch (logErr) {
+            console.error(`Failed to update scrape log for ${collector.name}:`, logErr);
+        }
     }
 
     return {

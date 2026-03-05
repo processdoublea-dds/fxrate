@@ -8,7 +8,7 @@ import {
     ExchangeRateInsert,
 } from '@/lib/supabase';
 import { notifyTeams, notifyTeamsError } from '@/lib/teams-notify';
-import { getPreviousBusinessDate } from '@/collectors/base';
+import { getYesterdayDate } from '@/collectors/base';
 
 // Vercel Cron: 30 1 * * 1-5 (UTC 01:30 Mon-Fri = Thailand 08:30)
 export const maxDuration = 120; // seconds
@@ -36,8 +36,9 @@ export async function GET(request: Request) {
     const allRates: ExchangeRateInsert[] = [];
     let newDataFetched = false;
 
-    // Bloomberg uses the previous business date (internally getYesterdayDate is used for cross calculation)
-    const rateDate = getPreviousBusinessDate();
+    // Bloomberg always uses yesterday's calendar date (not previous business date)
+    // On Monday → Sunday, on Tuesday → Monday, etc.
+    const rateDate = getYesterdayDate();
 
     // Bloomberg
     const bloombergSummary = await fetchSourceWithRetryAndDedup(new BloombergCollector(), allRates, rateDate, 2); // 2 retries
