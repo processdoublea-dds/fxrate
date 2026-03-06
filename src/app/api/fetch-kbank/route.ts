@@ -83,7 +83,12 @@ export async function GET(request: Request) {
             return bankDate >= result.rateDate;
         });
 
-        if (fetchedRates.length > 0) {
+        // Minimum record count: KBANK normally returns ~25-30 currencies
+        // If significantly fewer, BrowserAct likely scraped incomplete data
+        const KBANK_MIN_RECORDS = 10;
+
+        if (fetchedRates.length >= KBANK_MIN_RECORDS) {
+            // ✅ Full dataset — save to DB
             await insertRates(fetchedRates);
 
             if (logId) {
@@ -99,7 +104,6 @@ export async function GET(request: Request) {
                 }
             }
 
-            // Notify Teams
             const summary: FetchSummary = {
                 source: 'KBANK',
                 status: 'success',
@@ -116,6 +120,36 @@ export async function GET(request: Request) {
                 success: true,
                 summaries: [summary],
                 totalNewRates: fetchedRates.length,
+            });
+        } else if (fetchedRates.length > 0) {
+            // ⚠️ Incomplete dataset — DON'T save, let GAS retry next round
+            const msg = `BrowserAct returned only ${fetchedRates.length}/${KBANK_MIN_RECORDS}+ currencies — incomplete, skipping save to allow retry`;
+            console.warn(`[KBANK] ${msg}`);
+
+            if (logId) {
+                try {
+                    await updateScrapeLog(logId, {
+                        status: 'skipped',
+                        completed_at: new Date().toISOString(),
+                        records_count: 0,
+                        duration_ms: durationMs,
+                        error_message: msg,
+                    });
+                } catch (logErr) {
+                    console.error('Failed to update scrape log:', logErr);
+                }
+            }
+
+            return NextResponse.json({
+                success: true,
+                summaries: [{
+                    source: 'KBANK',
+                    status: 'skipped',
+                    recordsCount: 0,
+                    durationMs,
+                    errorMessage: msg,
+                }],
+                totalNewRates: 0,
             });
         } else {
             // BrowserAct succeeded but bank hasn't updated yet (timestamp filter removed all)
