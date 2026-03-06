@@ -137,11 +137,12 @@ export class KbankCollector implements Collector {
                     ? new Date(`${dateTimeStr.replace(' ', 'T')}+07:00`).toISOString()
                     : new Date().toISOString();
 
-                // BrowserAct returns inconsistent field names across runs:
-                //   sell_notes: bank_notes_sell | bank_notes_selling | bank_selling_notes
-                //   buy_notes:  bank_notes_buy  | bank_notes_buying  | bank_buying_notes
-                const sellNotes = item.bank_notes_sell ?? item.bank_notes_selling ?? item.bank_selling_notes;
-                const buyNotes = item.bank_notes_buy ?? item.bank_notes_buying ?? item.bank_buying_notes;
+                // Resolve fields using fuzzy matching — BrowserAct field names vary between runs
+                const sellTt = resolveField(item, ['tt_draft_t_cheques', 'tt_draft', 'selling_tt']);
+                const sellNotes = resolveField(item, ['bank_notes_sell', 'bank_notes_selling', 'bank_selling_notes', 'selling_notes']);
+                const buyTt = resolveField(item, ['telex_transfer', 'buying_tt', 'tt_buying']);
+                const buySight = resolveField(item, ['export_sight_bill', 'sight_bill', 'export_bill']);
+                const buyNotes = resolveField(item, ['bank_notes_buy', 'bank_notes_buying', 'bank_buying_notes', 'buying_notes']);
 
                 rates.push({
                     run_id: runId,
@@ -149,10 +150,10 @@ export class KbankCollector implements Collector {
                     source: this.name,
                     currency: finalCurrency,
                     currency_label: currencyLabel,
-                    sell_tt: normalizeNumber(item.tt_draft_t_cheques),
+                    sell_tt: normalizeNumber(sellTt),
                     sell_notes: normalizeNumber(sellNotes),
-                    buy_tt: normalizeNumber(item.telex_transfer),
-                    buy_sight: normalizeNumber(item.export_sight_bill),
+                    buy_tt: normalizeNumber(buyTt),
+                    buy_sight: normalizeNumber(buySight),
                     buy_transfer: 0,
                     buy_notes: normalizeNumber(buyNotes),
                     bank_timestamp: bankTimestamp,
@@ -193,6 +194,47 @@ function normalizeCurrencyCode(item: Record<string, any>): string | null {
     // If currency already contains denomination (e.g. "USD 1"), normalize spaces
     // "USD 1" → "USD1", "USD 5-20" → "USD5-20"
     return rawCurrency.replace(/\s+/g, '');
+}
+
+/**
+ * Resolve a field value from BrowserAct item using known aliases + fuzzy keyword fallback.
+ * BrowserAct naming is inconsistent across runs — this handles any variant.
+ *
+ * Strategy:
+ *   1. Try each known alias (exact match)
+ *   2. Fuzzy: check if any remaining key contains keywords derived from aliases
+ *      e.g. aliases ['bank_notes_sell', ...] → keywords ['sell', 'note']
+ */
+function resolveField(item: Record<string, any>, aliases: string[]): any {
+    // 1. Exact match on known aliases
+    for (const alias of aliases) {
+        if (item[alias] !== undefined) return item[alias];
+    }
+
+    // 2. Fuzzy keyword match — extract keywords from aliases and search item keys
+    const skipKeys = new Set(['currency', 'currency_code', 'denomination', 'date_time', 'date', 'time', 'round']);
+    const itemKeys = Object.keys(item).filter(k => !skipKeys.has(k));
+
+    // Build keyword set from aliases (split by underscore, take meaningful words)
+    const meaningfulWords = new Set<string>();
+    for (const alias of aliases) {
+        for (const word of alias.split('_')) {
+            if (word.length > 2 && !['bank', 'notes', 'bill'].includes(word)) {
+                meaningfulWords.add(word.toLowerCase());
+            }
+        }
+    }
+
+    // Find a key that contains the most keywords
+    for (const key of itemKeys) {
+        const keyLower = key.toLowerCase();
+        const matches = [...meaningfulWords].filter(w => keyLower.includes(w));
+        if (matches.length >= 2 || (meaningfulWords.size === 1 && matches.length === 1)) {
+            return item[key];
+        }
+    }
+
+    return undefined;
 }
 
 /**
