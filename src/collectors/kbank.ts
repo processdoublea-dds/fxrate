@@ -130,9 +130,18 @@ export class KbankCollector implements Collector {
                 if (seen.has(finalCurrency)) continue;
                 seen.add(finalCurrency);
 
-                const bankTimestamp = item.date_time
-                    ? new Date(`${item.date_time.replace(' ', 'T')}+07:00`).toISOString()
+                // Handle both combined "date_time" and separate "date" + "time" fields
+                const dateTimeStr = item.date_time
+                    || (item.date && item.time ? `${item.date} ${item.time}` : null);
+                const bankTimestamp = dateTimeStr
+                    ? new Date(`${dateTimeStr.replace(' ', 'T')}+07:00`).toISOString()
                     : new Date().toISOString();
+
+                // BrowserAct returns inconsistent field names across runs:
+                //   sell_notes: bank_notes_sell | bank_notes_selling | bank_selling_notes
+                //   buy_notes:  bank_notes_buy  | bank_notes_buying  | bank_buying_notes
+                const sellNotes = item.bank_notes_sell ?? item.bank_notes_selling ?? item.bank_selling_notes;
+                const buyNotes = item.bank_notes_buy ?? item.bank_notes_buying ?? item.bank_buying_notes;
 
                 rates.push({
                     run_id: runId,
@@ -141,11 +150,11 @@ export class KbankCollector implements Collector {
                     currency: finalCurrency,
                     currency_label: currencyLabel,
                     sell_tt: normalizeNumber(item.tt_draft_t_cheques),
-                    sell_notes: normalizeNumber(item.bank_selling_notes ?? item.bank_notes_sell),
+                    sell_notes: normalizeNumber(sellNotes),
                     buy_tt: normalizeNumber(item.telex_transfer),
                     buy_sight: normalizeNumber(item.export_sight_bill),
                     buy_transfer: 0,
-                    buy_notes: normalizeNumber(item.bank_buying_notes ?? item.bank_notes_buy),
+                    buy_notes: normalizeNumber(buyNotes),
                     bank_timestamp: bankTimestamp,
                     raw_data: item,
                 });
