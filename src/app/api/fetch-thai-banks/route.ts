@@ -94,11 +94,14 @@ export async function GET(request: Request) {
     let newDataFetched = false;
 
     // Run all bank collectors in PARALLEL (SCB ~5s, KTB ~5s, KBANK BrowserAct ~60-90s)
-    // Each collector gets its own rates array, merged after
+    // KBANK gets maxRetries=1 because BrowserAct takes 60-90s per call
+    // → 3 retries × 90s = 270s >> Vercel 120s limit!
+    // GAS retries every 15 min, so KBANK will retry at the next GAS round.
     const results = await Promise.allSettled(
         BANK_COLLECTORS.map(async (collector) => {
             const localRates: ExchangeRateInsert[] = [];
-            const summary = await fetchSourceWithRetryAndDedup(collector, localRates, rateDate, 3);
+            const maxRetries = collector.name === 'KBANK' ? 1 : 3;
+            const summary = await fetchSourceWithRetryAndDedup(collector, localRates, rateDate, maxRetries);
             return { summary, rates: localRates };
         })
     );
