@@ -1,14 +1,6 @@
 {
     "crons": [
         {
-            "path": "/api/fetch-bot",
-            "schedule": "0 1 * * 1-5"
-        },
-        {
-            "path": "/api/fetch-bloomberg",
-            "schedule": "0 1 * * 1-5"
-        },
-        {
             "path": "/api/fetch-thai-banks",
             "schedule": "30 1 * * 1-5"
         }

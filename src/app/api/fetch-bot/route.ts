@@ -103,13 +103,17 @@ async function fetchBotWithRetry(
                     console.log(`[${collector.name}] Already have data for ${rateDate}, skipping insert`);
 
                     if (logId) {
-                        await updateScrapeLog(logId, {
-                            status: 'skipped',
-                            completed_at: new Date().toISOString(),
-                            records_count: 0,
-                            duration_ms: durationMs,
-                            error_message: `Data for ${rateDate} already exists`,
-                        });
+                        try {
+                            await updateScrapeLog(logId, {
+                                status: 'skipped',
+                                completed_at: new Date().toISOString(),
+                                records_count: 0,
+                                duration_ms: durationMs,
+                                error_message: `Data for ${rateDate} already exists`,
+                            });
+                        } catch (logErr) {
+                            console.error(`Failed to update scrape log:`, logErr);
+                        }
                     }
 
                     return {
@@ -125,12 +129,16 @@ async function fetchBotWithRetry(
                 allRates.push(...result.rates);
 
                 if (logId) {
-                    await updateScrapeLog(logId, {
-                        status: 'success',
-                        completed_at: new Date().toISOString(),
-                        records_count: result.rates.length,
-                        duration_ms: durationMs,
-                    });
+                    try {
+                        await updateScrapeLog(logId, {
+                            status: 'success',
+                            completed_at: new Date().toISOString(),
+                            records_count: result.rates.length,
+                            duration_ms: durationMs,
+                        });
+                    } catch (logErr) {
+                        console.error(`Failed to update scrape log:`, logErr);
+                    }
                 }
 
                 return {
@@ -158,15 +166,23 @@ async function fetchBotWithRetry(
     const errorMessage = `Exhausted ${maxRetries} retries for ${collector.name}`;
 
     if (logId) {
-        await updateScrapeLog(logId, {
-            status: 'failed',
-            completed_at: new Date().toISOString(),
-            error_message: errorMessage,
-            duration_ms: durationMs,
-        });
+        try {
+            await updateScrapeLog(logId, {
+                status: 'failed',
+                completed_at: new Date().toISOString(),
+                error_message: errorMessage,
+                duration_ms: durationMs,
+            });
+        } catch (logErr) {
+            console.error(`Failed to update scrape log:`, logErr);
+        }
     }
 
-    await notifyTeamsError(collector.name, errorMessage);
+    try {
+        await notifyTeamsError(collector.name, errorMessage);
+    } catch (err) {
+        console.error('Failed to send error notification:', err);
+    }
 
     return {
         source: collector.name,

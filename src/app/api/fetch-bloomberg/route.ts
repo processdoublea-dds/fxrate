@@ -40,8 +40,34 @@ export async function GET(request: Request) {
     // On Monday → Sunday, on Tuesday → Monday, etc.
     const rateDate = getYesterdayDate();
 
-    // Bloomberg
-    const bloombergSummary = await fetchSourceWithRetryAndDedup(new BloombergCollector(), allRates, rateDate, 2); // 2 retries
+    // ── DEDUP: Check if BTN + MNT already exist ──
+    // Bloomberg saves BTN/MNT with source="BOT". If both exist, skip BrowserAct entirely.
+    // This prevents calling BrowserAct 3 workflows on every GAS round (every 15 min).
+    const [hasBTN, hasMNT] = await Promise.all([
+        hasRateForToday('BOT', rateDate, 'BTN'),
+        hasRateForToday('BOT', rateDate, 'MNT'),
+    ]);
+
+    if (hasBTN && hasMNT) {
+        console.log(`[BLOOMBERG] BTN and MNT already exist for ${rateDate}, skipping BrowserAct`);
+        summaries.push({
+            source: 'BLOOMBERG',
+            status: 'skipped',
+            recordsCount: 0,
+            durationMs: 0,
+        });
+
+        return NextResponse.json({
+            success: true,
+            summaries,
+            totalRates: 0,
+        });
+    }
+
+    console.log(`[BLOOMBERG] Missing: ${!hasBTN ? 'BTN ' : ''}${!hasMNT ? 'MNT' : ''} for ${rateDate} — calling BrowserAct`);
+
+    // Bloomberg — call BrowserAct (3 workflows: USD-THB, USD-BTN, USD-MNT)
+    const bloombergSummary = await fetchWithRetry(new BloombergCollector(), allRates, rateDate, 2);
     summaries.push(bloombergSummary);
     if (bloombergSummary.status === 'success') newDataFetched = true;
 
@@ -61,21 +87,12 @@ export async function GET(request: Request) {
     });
 }
 
-async function fetchSourceWithRetryAndDedup(
+async function fetchWithRetry(
     collector: { name: string; fetch: () => Promise<{ rates: ExchangeRateInsert[]; rateDate: string }> },
     allRates: ExchangeRateInsert[],
     rateDate: string,
     maxRetries: number = 3
 ): Promise<FetchSummary> {
-
-    // Bloomberg's dedup logic: 
-    // It creates DB rows using source="BOT" because we don't distinguish them in the UI.
-    // However we'll trust the daily run or rely on strict UPSERT based on 'rate_date, source, currency'.
-
-    // Attempt strict dedup block if we assume both ran smoothly
-    // In Bloomberg case it is safer to just run it and let the database upsert handle clashes 
-    // to keep it simple, so we omit 'hasRateForToday' to ensure it processes the new fallback API design properly.
-
     const runId = generateRunId();
     const startedAt = new Date().toISOString();
     let startMs = Date.now();
@@ -108,12 +125,16 @@ async function fetchSourceWithRetryAndDedup(
                 allRates.push(...result.rates);
 
                 if (logId) {
-                    await updateScrapeLog(logId, {
-                        status: 'success',
-                        completed_at: new Date().toISOString(),
-                        records_count: result.rates.length,
-                        duration_ms: durationMs,
-                    });
+                    try {
+                        await updateScrapeLog(logId, {
+                            status: 'success',
+                            completed_at: new Date().toISOString(),
+                            records_count: result.rates.length,
+                            duration_ms: durationMs,
+                        });
+                    } catch (logErr) {
+                        console.error(`Failed to update scrape log:`, logErr);
+                    }
                 }
 
                 return {
@@ -123,14 +144,12 @@ async function fetchSourceWithRetryAndDedup(
                     durationMs,
                 };
             } else {
-                // Returns 0 rates, might be a soft failure, let's retry if we have attempts left
                 console.warn(`[${collector.name}] Returns 0 rates on attempt ${attempt}`);
             }
         } catch (err) {
             console.error(`[${collector.name}] Error on attempt ${attempt}:`, err);
         }
 
-        // Wait before retry
         if (attempt < maxRetries) {
             await new Promise(resolve => setTimeout(resolve, 5000));
         }
@@ -140,15 +159,23 @@ async function fetchSourceWithRetryAndDedup(
     const errorMessage = `Exhausted ${maxRetries} retries for ${collector.name}`;
 
     if (logId) {
-        await updateScrapeLog(logId, {
-            status: 'failed',
-            completed_at: new Date().toISOString(),
-            error_message: errorMessage,
-            duration_ms: durationMs,
-        });
+        try {
+            await updateScrapeLog(logId, {
+                status: 'failed',
+                completed_at: new Date().toISOString(),
+                error_message: errorMessage,
+                duration_ms: durationMs,
+            });
+        } catch (logErr) {
+            console.error(`Failed to update scrape log:`, logErr);
+        }
     }
 
-    await notifyTeamsError(collector.name, errorMessage);
+    try {
+        await notifyTeamsError(collector.name, errorMessage);
+    } catch (err) {
+        console.error('Failed to send error notification:', err);
+    }
 
     return {
         source: collector.name,
