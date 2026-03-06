@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import {
     ScbCollector,
     KtbCollector,
-    KbankCollector,
     generateRunId,
 } from '@/collectors';
 import {
@@ -29,10 +28,10 @@ interface FetchSummary {
     errorMessage?: string;
 }
 
+// KBANK is now a separate endpoint (/api/fetch-kbank) with its own 120s budget
 const BANK_COLLECTORS = [
     new ScbCollector(),
     new KtbCollector(),
-    new KbankCollector(),
 ];
 
 export async function GET(request: Request) {
@@ -93,15 +92,11 @@ export async function GET(request: Request) {
     const allRates: ExchangeRateInsert[] = [];
     let newDataFetched = false;
 
-    // Run all bank collectors in PARALLEL (SCB ~5s, KTB ~5s, KBANK BrowserAct ~60-90s)
-    // KBANK gets maxRetries=1 because BrowserAct takes 60-90s per call
-    // → 3 retries × 90s = 270s >> Vercel 120s limit!
-    // GAS retries every 15 min, so KBANK will retry at the next GAS round.
+    // Run SCB + KTB in parallel (both are fast API calls, ~5s each)
     const results = await Promise.allSettled(
         BANK_COLLECTORS.map(async (collector) => {
             const localRates: ExchangeRateInsert[] = [];
-            const maxRetries = collector.name === 'KBANK' ? 1 : 3;
-            const summary = await fetchSourceWithRetryAndDedup(collector, localRates, rateDate, maxRetries);
+            const summary = await fetchSourceWithRetryAndDedup(collector, localRates, rateDate, 3);
             return { summary, rates: localRates };
         })
     );
