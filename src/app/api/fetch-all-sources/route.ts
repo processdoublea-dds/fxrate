@@ -133,8 +133,9 @@ export async function GET(request: NextRequest) {
         });
     }
 
-    // Thai Banks (only if not holiday)
-    if (!holidayName) {
+    // Thai Banks (only if not holiday AND after 08:00 Bangkok time)
+    const bangkokHour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false }));
+    if (!holidayName && bangkokHour >= 8) {
         for (const CollectorClass of [ScbCollector, KtbCollector, KbankCollector]) {
             tasks.push({
                 key: CollectorClass.name,
@@ -145,6 +146,11 @@ export async function GET(request: NextRequest) {
                     return { summary, rates: localRates };
                 })(),
             });
+        }
+    } else if (!holidayName) {
+        console.log(`[FETCH-ALL] Bangkok hour is ${bangkokHour}, skipping Thai banks (too early)`);
+        for (const name of ['SCB', 'KTB', 'KBANK']) {
+            summaries.push({ source: name, status: 'skipped', recordsCount: 0, durationMs: 0, errorMessage: `Too early (hour: ${bangkokHour})` });
         }
     }
 
@@ -322,8 +328,12 @@ async function fetchBankWithRetry(
             const result = await collector.fetch();
             let fetchedRates = result.rates.filter(r => {
                 if (!r.bank_timestamp) return true;
-                const bankDate = new Date(r.bank_timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
-                return bankDate >= result.rateDate;
+                const bankTs = new Date(r.bank_timestamp);
+                const bankDate = bankTs.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+                if (bankDate < result.rateDate) return false;
+                // Reject rates published before 08:00 Bangkok time
+                const bankHour = Number(bankTs.toLocaleString('en-US', { timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false }));
+                return bankHour >= 8;
             });
 
             const durationMs = Date.now() - startMs;

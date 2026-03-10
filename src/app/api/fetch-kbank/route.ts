@@ -34,6 +34,23 @@ export async function GET(request: Request) {
 
     const rateDate = getTodayDate();
 
+    // ── TIME GATE: Don't call BrowserAct before 08:00 Bangkok time ──
+    const bangkokHour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false }));
+    if (bangkokHour < 8) {
+        console.log(`[KBANK] Current Bangkok hour is ${bangkokHour}, skipping (too early, wait until 08:00)`);
+        return NextResponse.json({
+            success: true,
+            summaries: [{
+                source: 'KBANK',
+                status: 'skipped',
+                recordsCount: 0,
+                durationMs: 0,
+                errorMessage: `Skipped — Bangkok time is before 08:00 (current hour: ${bangkokHour})`,
+            }],
+            totalNewRates: 0,
+        });
+    }
+
     // ── DEDUP: Check if KBANK already fetched ──
     const alreadyFetched = await hasRateForToday('KBANK', rateDate);
     if (alreadyFetched) {
@@ -74,13 +91,18 @@ export async function GET(request: Request) {
         const result = await collector.fetch();
         const durationMs = Date.now() - startMs;
 
-        // Timestamp filter: only accept rates with today's date
+        // Timestamp filter: only accept rates that:
+        // 1. Have today's date (or newer) — reject stale yesterday data
+        // 2. Have a timestamp >= 08:00 Bangkok time — reject early-morning rates (6-7 AM)
         let fetchedRates = result.rates;
         fetchedRates = fetchedRates.filter(r => {
             if (!r.bank_timestamp) return true;
-            const bankDate = new Date(r.bank_timestamp)
-                .toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
-            return bankDate >= result.rateDate;
+            const bankTs = new Date(r.bank_timestamp);
+            const bankDate = bankTs.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+            if (bankDate < result.rateDate) return false;
+            // Reject rates published before 08:00 Bangkok time
+            const bankHour = Number(bankTs.toLocaleString('en-US', { timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false }));
+            return bankHour >= 8;
         });
 
         // Minimum record count: KBANK normally returns ~25-30 currencies

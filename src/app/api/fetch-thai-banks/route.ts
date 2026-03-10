@@ -46,6 +46,20 @@ export async function GET(request: Request) {
 
     const rateDate = getTodayDate();
 
+    // ── TIME GATE: Don't call bank APIs before 08:00 Bangkok time ──
+    const bangkokHour = Number(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false }));
+    if (bangkokHour < 8) {
+        console.log(`[THAI-BANKS] Current Bangkok hour is ${bangkokHour}, skipping (too early, wait until 08:00)`);
+        return NextResponse.json({
+            success: true,
+            rateDate,
+            status: 'too_early',
+            message: `Skipped — Bangkok time is before 08:00 (current hour: ${bangkokHour})`,
+            summaries: [],
+            totalNewRates: 0,
+        });
+    }
+
     // DEDUP: Check if today is an official bank holiday
     const holidayName = await isBankHoliday(rateDate);
     if (holidayName) {
@@ -200,12 +214,17 @@ async function fetchSourceWithRetryAndDedup(
             const result = await collector.fetch();
             let fetchedRates = result.rates;
 
-            // Ensure we only insert rates that actually belong to today (or newer).
-            // If the bank's website hasn't updated yet and still shows yesterday's timestamp, discard them.
+            // Ensure we only insert rates that:
+            // 1. Actually belong to today (or newer) — reject stale yesterday data
+            // 2. Have a timestamp >= 08:00 Bangkok time — reject early-morning rates (6-7 AM)
             fetchedRates = fetchedRates.filter(r => {
                 if (!r.bank_timestamp) return true;
-                const bankDate = new Date(r.bank_timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
-                return bankDate >= result.rateDate;
+                const bankTs = new Date(r.bank_timestamp);
+                const bankDate = bankTs.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+                if (bankDate < result.rateDate) return false;
+                // Reject rates published before 08:00 Bangkok time
+                const bankHour = Number(bankTs.toLocaleString('en-US', { timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false }));
+                return bankHour >= 8;
             });
 
             const durationMs = Date.now() - startMs;
