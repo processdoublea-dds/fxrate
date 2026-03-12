@@ -38,7 +38,7 @@ async function fetchBrowserAct(workflowId: string, apiKey: string, label: string
         console.log(`Bloomberg (${label}): Task started (ID: ${taskId})`);
 
         let attempts = 0;
-        const maxAttempts = 30; // 90s max
+        const maxAttempts = 35; // 105s max (increased from 90s to avoid edge-case timeouts)
         while (attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 3000));
             attempts++;
@@ -50,18 +50,30 @@ async function fetchBrowserAct(workflowId: string, apiKey: string, label: string
             const status = statusData.status;
 
             if (status === 'finished') {
-                const parsed = JSON.parse(statusData.output.string);
-                if (parsed && parsed.length > 0 && parsed[0].rate !== undefined) {
-                    return Number(parsed[0].rate);
+                // Debug: log the raw output structure to diagnose parsing issues
+                console.log(`Bloomberg (${label}): Task finished. Output keys: ${JSON.stringify(Object.keys(statusData.output || {}))}`);
+                try {
+                    const outputStr = statusData.output?.string;
+                    if (!outputStr) {
+                        console.error(`Bloomberg (${label}): output.string is empty/missing. Full output:`, JSON.stringify(statusData.output).substring(0, 500));
+                        return null;
+                    }
+                    const parsed = JSON.parse(outputStr);
+                    if (parsed && parsed.length > 0 && parsed[0].rate !== undefined) {
+                        console.log(`Bloomberg (${label}): Rate = ${parsed[0].rate}`);
+                        return Number(parsed[0].rate);
+                    }
+                    console.error(`Bloomberg (${label}): Invalid output format`, JSON.stringify(parsed).substring(0, 500));
+                } catch (parseErr) {
+                    console.error(`Bloomberg (${label}): JSON parse error:`, parseErr, 'Raw:', JSON.stringify(statusData.output).substring(0, 500));
                 }
-                console.error(`Bloomberg (${label}): Invalid output format`, parsed);
                 return null;
             } else if (status === 'failed' || status === 'canceled') {
-                console.error(`Bloomberg (${label}): Task failed/canceled`, statusData);
+                console.error(`Bloomberg (${label}): Task ${status}`, statusData);
                 return null;
             }
         }
-        console.error(`Bloomberg (${label}): Task timed out after ${maxAttempts} attempts`);
+        console.error(`Bloomberg (${label}): Task timed out after ${maxAttempts * 3}s (${maxAttempts} attempts)`);
     } catch (err) {
         console.error(`BrowserAct fetch failed for workflow ${workflowId} (${label}):`, err);
     }

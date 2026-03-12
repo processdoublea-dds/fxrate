@@ -88,7 +88,9 @@ export async function GET(request: NextRequest) {
     const bankSources = ['SCB', 'KTB', 'KBANK'];
     const bankSummaries = bankSources.map((source) => {
         const sourceRates = (bankRates || []).filter((r) => r.source === source);
-        const sourceLog = (logs || []).find((l) => l.source === source);
+        // Prefer 'success' log over 'skipped' (GAS retries create many skipped logs)
+        const sourceLogs = (logs || []).filter((l) => l.source === source);
+        const sourceLog = sourceLogs.find((l) => l.status === 'success') || sourceLogs.find((l) => l.status === 'failed') || sourceLogs[0];
         return {
             source,
             count: sourceRates.length,
@@ -99,7 +101,9 @@ export async function GET(request: NextRequest) {
     });
 
     // BOT+Bloomberg merged summary
-    const botLog = (logs || []).find((l) => l.source === 'BOT');
+    // Prefer 'success' log over 'skipped' (dedup rounds create many skipped logs that mask the real success)
+    const botLogs = (logs || []).filter((l) => l.source === 'BOT');
+    const botLog = botLogs.find((l) => l.status === 'success') || botLogs.find((l) => l.status === 'failed') || botLogs[0];
     const bloombergLog = (logs || []).find((l) => l.source === 'BLOOMBERG');
     const botBloombergSummary = {
         source: 'BOT',
