@@ -7,6 +7,7 @@ export interface CollectorResult {
     rates: ExchangeRateInsert[];
     rateDate: string;
     bankTimestamp?: string;
+    rawResponse?: any;
 }
 
 export interface Collector {

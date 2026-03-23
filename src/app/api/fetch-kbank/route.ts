@@ -120,6 +120,7 @@ export async function GET(request: Request) {
                         completed_at: new Date().toISOString(),
                         records_count: fetchedRates.length,
                         duration_ms: durationMs,
+                        raw_response: result.rawResponse,
                     });
                 } catch (logErr) {
                     console.error('Failed to update scrape log:', logErr);
@@ -156,6 +157,7 @@ export async function GET(request: Request) {
                         records_count: 0,
                         duration_ms: durationMs,
                         error_message: msg,
+                        raw_response: result.rawResponse,
                     });
                 } catch (logErr) {
                     console.error('Failed to update scrape log:', logErr);
@@ -185,6 +187,7 @@ export async function GET(request: Request) {
                         records_count: 0,
                         duration_ms: durationMs,
                         error_message: 'Bank rates not yet updated for today',
+                        raw_response: result.rawResponse,
                     });
                 } catch (logErr) {
                     console.error('Failed to update scrape log:', logErr);

@@ -22,11 +22,12 @@ export class KbankCollector implements Collector {
         const runId = generateRunId();
         const rateDate = getTodayDate();
         const rates: ExchangeRateInsert[] = [];
+        let rawResponse: any = null;
 
         const apiKey = process.env.BROWSERACT_API_KEY;
         if (!apiKey) {
             console.error('KBANK Collector: Missing BROWSERACT_API_KEY environment variable');
-            return { rates: [], rateDate };
+            return { rates: [], rateDate, rawResponse: 'Missing API Key' };
         }
 
         try {
@@ -44,7 +45,7 @@ export class KbankCollector implements Collector {
 
             if (runRes.status !== 200 || !runRes.data.id) {
                 console.error('KBANK BrowserAct run failed:', runRes.data);
-                return { rates: [], rateDate };
+                return { rates: [], rateDate, rawResponse: runRes.data };
             }
 
             const taskId = runRes.data.id;
@@ -71,7 +72,7 @@ export class KbankCollector implements Collector {
                     break;
                 } else if (status === 'failed' || status === 'canceled') {
                     console.error('KBANK BrowserAct task failed or canceled:', statusData);
-                    return { rates: [], rateDate };
+                    return { rates: [], rateDate, rawResponse: statusData };
                 }
 
                 if (attempts % 5 === 0) {
@@ -81,11 +82,13 @@ export class KbankCollector implements Collector {
 
             if (!taskResult || !taskResult.output || !taskResult.output.string) {
                 console.error('KBANK BrowserAct polling timed out or returned no output');
-                return { rates: [], rateDate };
+                rawResponse = taskResult || 'Timed out';
+                return { rates: [], rateDate, rawResponse };
             }
 
             // 3. Parse and map results
             console.log('KBANK: BrowserAct task finished. Parsing data...');
+            rawResponse = taskResult.output.string;
             const parsedData = JSON.parse(taskResult.output.string);
             console.log(`KBANK: Received ${parsedData.length} items. Sample keys: ${parsedData.length > 0 ? Object.keys(parsedData[0]).join(', ') : 'N/A'}`);
             const seen = new Set<string>();
@@ -180,9 +183,10 @@ export class KbankCollector implements Collector {
 
         } catch (err) {
             console.error('KBANK BrowserAct fetch failed:', err);
+            return { rates, rateDate, rawResponse: String(err) };
         }
 
-        return { rates, rateDate };
+        return { rates, rateDate, rawResponse };
     }
 }
 
