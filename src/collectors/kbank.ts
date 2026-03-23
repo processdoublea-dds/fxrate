@@ -137,12 +137,27 @@ export class KbankCollector implements Collector {
                     ? new Date(`${dateTimeStr.replace(' ', 'T')}+07:00`).toISOString()
                     : new Date().toISOString();
 
-                // Resolve fields using fuzzy matching — BrowserAct field names vary between runs
-                const sellTt = resolveField(item, ['tt_draft_t_cheques', 'tt_draft', 'selling_tt']);
-                const sellNotes = resolveField(item, ['bank_notes_sell', 'bank_notes_selling', 'bank_selling_notes', 'selling_notes']);
-                const buyTt = resolveField(item, ['telex_transfer', 'buying_tt', 'tt_buying']);
-                const buySight = resolveField(item, ['export_sight_bill', 'sight_bill', 'export_bill']);
-                const buyNotes = resolveField(item, ['bank_notes_buy', 'bank_notes_buying', 'bank_buying_notes', 'buying_notes']);
+                // Resolve fields using Positional Mapping if exactly 5 rate columns are present
+                // (BrowserAct naturally reads table left-to-right, maintaining KBANK website order)
+                const metaKeys = new Set(['currency', 'currency_code', 'currency_pair', 'denomination', 'unit', 'unit_range', 'date_time', 'date', 'time', 'round']);
+                const rateKeys = Object.keys(item).filter(k => !metaKeys.has(k.toLowerCase()) && item[k] !== null && String(item[k]).trim() !== '');
+
+                let sellTt, sellNotes, buyTt, buySight, buyNotes;
+
+                if (rateKeys.length === 5) {
+                    buySight = item[rateKeys[0]];
+                    buyTt = item[rateKeys[1]];
+                    buyNotes = item[rateKeys[2]];
+                    sellTt = item[rateKeys[3]];
+                    sellNotes = item[rateKeys[4]];
+                } else {
+                    console.log(`KBANK: Fallback to fuzzy match for ${finalCurrency} (found ${rateKeys.length} rate keys)`);
+                    sellTt = resolveField(item, ['bank_selling_tt_draft_t_cheques', 'bank_selling_telex_transfer', 'tt_draft_t_cheques', 'tt_draft', 'selling_tt']);
+                    sellNotes = resolveField(item, ['bank_selling_bank_notes', 'bank_notes_sell', 'bank_notes_selling', 'bank_selling_notes', 'selling_notes']);
+                    buyTt = resolveField(item, ['bank_buying_telex_transfer', 'telex_transfer', 'buying_tt', 'tt_buying']);
+                    buySight = resolveField(item, ['bank_buying_export_sight_bill', 'export_sight_bill', 'sight_bill', 'export_bill']);
+                    buyNotes = resolveField(item, ['bank_buying_bank_notes', 'bank_notes_buy', 'bank_notes_buying', 'bank_buying_notes', 'buying_notes']);
+                }
 
                 rates.push({
                     run_id: runId,
@@ -219,7 +234,7 @@ function resolveField(item: Record<string, any>, aliases: string[]): any {
     const meaningfulWords = new Set<string>();
     for (const alias of aliases) {
         for (const word of alias.split('_')) {
-            if (word.length > 2 && !['bank', 'notes', 'bill'].includes(word)) {
+            if (word.length > 2 && !['bank', 'the', 'and'].includes(word)) {
                 meaningfulWords.add(word.toLowerCase());
             }
         }
