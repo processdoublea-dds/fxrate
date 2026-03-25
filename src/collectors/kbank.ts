@@ -133,16 +133,18 @@ export class KbankCollector implements Collector {
                 if (seen.has(finalCurrency)) continue;
                 seen.add(finalCurrency);
 
-                // Handle both combined "date_time" and separate "date" + "time" fields
-                const dateTimeStr = item.date_time
+                // Resolve bank datetime — BrowserAct returns varying field names
+                // Priority: datetime (most common) → date_time → date+time combo
+                const dateTimeStr = item.datetime || item.date_time
                     || (item.date && item.time ? `${item.date} ${item.time}` : null);
+                // If no datetime found, leave null so route.ts timestamp filter can reject stale data
                 const bankTimestamp = dateTimeStr
                     ? new Date(`${dateTimeStr.replace(' ', 'T')}+07:00`).toISOString()
-                    : new Date().toISOString();
+                    : undefined;
 
                 // Resolve fields using Positional Mapping if exactly 5 rate columns are present
                 // (BrowserAct naturally reads table left-to-right, maintaining KBANK website order)
-                const metaKeys = new Set(['currency', 'currency_code', 'currency_pair', 'denomination', 'unit', 'unit_range', 'date_time', 'date', 'time', 'round']);
+                const metaKeys = new Set(['currency', 'currency_code', 'currency_pair', 'denomination', 'unit', 'unit_range', 'date_time', 'datetime', 'date', 'time', 'round']);
                 const rateKeys = Object.keys(item).filter(k => !metaKeys.has(k.toLowerCase()) && item[k] !== null && String(item[k]).trim() !== '');
 
                 let sellTt, sellNotes, buyTt, buySight, buyNotes;

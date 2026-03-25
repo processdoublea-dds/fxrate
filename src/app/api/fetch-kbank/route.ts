@@ -92,11 +92,12 @@ export async function GET(request: Request) {
         const durationMs = Date.now() - startMs;
 
         // Timestamp filter: only accept rates that:
-        // 1. Have today's date (or newer) — reject stale yesterday data
-        // 2. Have a timestamp >= 08:00 Bangkok time — reject early-morning rates (6-7 AM)
+        // 1. Have a valid bank_timestamp (reject if datetime field not resolved — safety net)
+        // 2. Have today's date (or newer) — reject stale yesterday data
+        // 3. Have a timestamp >= 08:00 Bangkok time — reject early-morning rates (6-7 AM)
         let fetchedRates = result.rates;
         fetchedRates = fetchedRates.filter(r => {
-            if (!r.bank_timestamp) return true;
+            if (!r.bank_timestamp) return false; // No datetime = reject (don't trust unresolved data)
             const bankTs = new Date(r.bank_timestamp);
             const bankDate = bankTs.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
             if (bankDate < result.rateDate) return false;
