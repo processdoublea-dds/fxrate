@@ -18,7 +18,12 @@ const WORKFLOWS = {
     USD_MNT: '49863477930660942',
 };
 
-async function fetchBrowserAct(workflowId: string, apiKey: string, label: string): Promise<number | null> {
+interface BrowserActResult {
+    rate: number | null;
+    rawOutput: any;
+}
+
+async function fetchBrowserAct(workflowId: string, apiKey: string, label: string): Promise<BrowserActResult> {
     try {
         const runRes = await axios.post(`${BROWSERACT_API}/run-task`, {
             workflow_id: workflowId
@@ -31,7 +36,7 @@ async function fetchBrowserAct(workflowId: string, apiKey: string, label: string
 
         if (runRes.status !== 200 || !runRes.data.id) {
             console.error(`BrowserAct run failed for ${label}:`, runRes.data);
-            return null;
+            return { rate: null, rawOutput: { error: 'run failed', data: runRes.data } };
         }
 
         const taskId = runRes.data.id;
@@ -50,34 +55,36 @@ async function fetchBrowserAct(workflowId: string, apiKey: string, label: string
             const status = statusData.status;
 
             if (status === 'finished') {
-                // Debug: log the raw output structure to diagnose parsing issues
                 console.log(`Bloomberg (${label}): Task finished. Output keys: ${JSON.stringify(Object.keys(statusData.output || {}))}`);
+                const rawOutput = statusData.output?.string || statusData.output;
                 try {
                     const outputStr = statusData.output?.string;
                     if (!outputStr) {
                         console.error(`Bloomberg (${label}): output.string is empty/missing. Full output:`, JSON.stringify(statusData.output).substring(0, 500));
-                        return null;
+                        return { rate: null, rawOutput };
                     }
                     const parsed = JSON.parse(outputStr);
                     if (parsed && parsed.length > 0 && parsed[0].rate !== undefined) {
                         console.log(`Bloomberg (${label}): Rate = ${parsed[0].rate}`);
-                        return Number(parsed[0].rate);
+                        return { rate: Number(parsed[0].rate), rawOutput };
                     }
                     console.error(`Bloomberg (${label}): Invalid output format`, JSON.stringify(parsed).substring(0, 500));
+                    return { rate: null, rawOutput };
                 } catch (parseErr) {
                     console.error(`Bloomberg (${label}): JSON parse error:`, parseErr, 'Raw:', JSON.stringify(statusData.output).substring(0, 500));
+                    return { rate: null, rawOutput };
                 }
-                return null;
             } else if (status === 'failed' || status === 'canceled') {
                 console.error(`Bloomberg (${label}): Task ${status}`, statusData);
-                return null;
+                return { rate: null, rawOutput: { error: status, data: statusData } };
             }
         }
         console.error(`Bloomberg (${label}): Task timed out after ${maxAttempts * 3}s (${maxAttempts} attempts)`);
+        return { rate: null, rawOutput: { error: 'timeout', attempts: maxAttempts } };
     } catch (err) {
         console.error(`BrowserAct fetch failed for workflow ${workflowId} (${label}):`, err);
+        return { rate: null, rawOutput: { error: String(err) } };
     }
-    return null;
 }
 
 export class BloombergCollector implements Collector {
@@ -140,21 +147,33 @@ export class BloombergCollector implements Collector {
         // BTN/MNT always use yesterday's calendar date (not previous business date)
         const rateDate = getYesterdayDate();
         let rates: ExchangeRateInsert[] = [];
+        let rawResponse: any = null;
 
         const apiKey = process.env.BROWSERACT_API_KEY;
         if (!apiKey) {
             console.error('BLOOMBERG: Missing BROWSERACT_API_KEY');
-            return { rates: [], rateDate };
+            return { rates: [], rateDate, rawResponse: 'Missing API Key' };
         }
 
         console.log('BLOOMBERG: Triggering BrowserAct workflows for USD-THB, USD-BTN, USD-MNT concurrently...');
 
         // Fetch all 3 workflows concurrently
-        const [usdThb, usdBtn, usdMnt] = await Promise.all([
+        const [thbResult, btnResult, mntResult] = await Promise.all([
             fetchBrowserAct(WORKFLOWS.USD_THB, apiKey, 'USD-THB'),
             fetchBrowserAct(WORKFLOWS.USD_BTN, apiKey, 'USD-BTN'),
             fetchBrowserAct(WORKFLOWS.USD_MNT, apiKey, 'USD-MNT')
         ]);
+
+        const usdThb = thbResult.rate;
+        const usdBtn = btnResult.rate;
+        const usdMnt = mntResult.rate;
+
+        // Store raw responses for debugging
+        rawResponse = {
+            'USD-THB': { rate: usdThb, raw: thbResult.rawOutput },
+            'USD-BTN': { rate: usdBtn, raw: btnResult.rawOutput },
+            'USD-MNT': { rate: usdMnt, raw: mntResult.rawOutput },
+        };
 
         console.log(`BLOOMBERG Rates fetched: USD-THB=${usdThb}, USD-BTN=${usdBtn}, USD-MNT=${usdMnt}`);
 
@@ -163,13 +182,14 @@ export class BloombergCollector implements Collector {
             console.warn('BLOOMBERG: Missing some rates from BrowserAct. Falling back to open.er-api.com...');
             const fallbackRates = await this.fetchFallbackRates(rateDate, runId);
             if (fallbackRates.length > 0) {
-                return { rates: fallbackRates, rateDate };
+                rawResponse.fallback = 'exchangerate-api.com';
+                return { rates: fallbackRates, rateDate, rawResponse };
             }
         }
 
         if (!usdThb) {
             console.error('BLOOMBERG: Failed to fetch base USD-THB rate and fallback completely failed. Aborting calculations.');
-            return { rates: [], rateDate };
+            return { rates: [], rateDate, rawResponse };
         }
 
         const buildRate = (currency: string, label: string, crossRate: number | null): ExchangeRateInsert | null => {
@@ -211,6 +231,6 @@ export class BloombergCollector implements Collector {
 
         console.log(`BLOOMBERG: Cross rates calculations complete. BTN=${btnRow?.sell_tt || 'N/A'}, MNT=${mntRow?.sell_tt || 'N/A'}`);
 
-        return { rates, rateDate };
+        return { rates, rateDate, rawResponse };
     }
 }

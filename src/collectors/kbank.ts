@@ -144,7 +144,7 @@ export class KbankCollector implements Collector {
 
                 // Resolve fields using Positional Mapping if exactly 5 rate columns are present
                 // (BrowserAct naturally reads table left-to-right, maintaining KBANK website order)
-                const metaKeys = new Set(['currency', 'currency_code', 'currency_pair', 'denomination', 'unit', 'unit_range', 'date_time', 'datetime', 'date', 'time', 'round']);
+                const metaKeys = new Set(['currency', 'currency_code', 'currency_name', 'currency_pair', 'denomination', 'unit', 'unit_range', 'date_time', 'datetime', 'date', 'time', 'round']);
                 const rateKeys = Object.keys(item).filter(k => !metaKeys.has(k.toLowerCase()) && item[k] !== null && String(item[k]).trim() !== '');
 
                 let sellTt, sellNotes, buyTt, buySight, buyNotes;

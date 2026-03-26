@@ -327,7 +327,7 @@ async function fetchBankWithRetry(
         try {
             const result = await collector.fetch();
             let fetchedRates = result.rates.filter(r => {
-                if (!r.bank_timestamp) return true;
+                if (!r.bank_timestamp) return false; // No datetime = reject (safety net)
                 const bankTs = new Date(r.bank_timestamp);
                 const bankDate = bankTs.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
                 if (bankDate < result.rateDate) return false;

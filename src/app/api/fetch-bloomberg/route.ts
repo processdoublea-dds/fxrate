@@ -88,7 +88,7 @@ export async function GET(request: Request) {
 }
 
 async function fetchWithRetry(
-    collector: { name: string; fetch: () => Promise<{ rates: ExchangeRateInsert[]; rateDate: string }> },
+    collector: { name: string; fetch: () => Promise<{ rates: ExchangeRateInsert[]; rateDate: string; rawResponse?: any }> },
     allRates: ExchangeRateInsert[],
     rateDate: string,
     maxRetries: number = 3
@@ -131,6 +131,7 @@ async function fetchWithRetry(
                             completed_at: new Date().toISOString(),
                             records_count: result.rates.length,
                             duration_ms: durationMs,
+                            raw_response: result.rawResponse,
                         });
                     } catch (logErr) {
                         console.error(`Failed to update scrape log:`, logErr);
@@ -145,6 +146,16 @@ async function fetchWithRetry(
                 };
             } else {
                 console.warn(`[${collector.name}] Returns 0 rates on attempt ${attempt}`);
+                // Save raw_response even when 0 rates for debugging
+                if (logId && result.rawResponse) {
+                    try {
+                        await updateScrapeLog(logId, {
+                            raw_response: result.rawResponse,
+                        });
+                    } catch (logErr) {
+                        console.error(`Failed to save raw_response:`, logErr);
+                    }
+                }
             }
         } catch (err) {
             console.error(`[${collector.name}] Error on attempt ${attempt}:`, err);
