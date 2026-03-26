@@ -137,10 +137,16 @@ export class KbankCollector implements Collector {
                 // Priority: datetime (most common) → date_time → date+time combo
                 const dateTimeStr = item.datetime || item.date_time
                     || (item.date && item.time ? `${item.date} ${item.time}` : null);
-                // If no datetime found, leave null so route.ts timestamp filter can reject stale data
-                const bankTimestamp = dateTimeStr
-                    ? new Date(`${dateTimeStr.replace(' ', 'T')}+07:00`).toISOString()
-                    : undefined;
+                // If no datetime found or parsing fails, leave undefined so route.ts timestamp filter can reject stale data
+                let bankTimestamp: string | undefined = undefined;
+                if (dateTimeStr) {
+                    const parsedDate = new Date(`${dateTimeStr.replace(' ', 'T')}+07:00`);
+                    if (!isNaN(parsedDate.getTime())) {
+                        bankTimestamp = parsedDate.toISOString();
+                    } else {
+                        console.warn(`KBANK: Invalid datetime string returned by BrowserAct: ${dateTimeStr}`);
+                    }
+                }
 
                 // Resolve rate fields — BrowserAct returns varying key names and counts (5-6+ rate columns)
                 // Strategy: try fuzzy/named matching first (works with any field count),
