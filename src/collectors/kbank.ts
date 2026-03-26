@@ -142,26 +142,32 @@ export class KbankCollector implements Collector {
                     ? new Date(`${dateTimeStr.replace(' ', 'T')}+07:00`).toISOString()
                     : undefined;
 
-                // Resolve fields using Positional Mapping if exactly 5 rate columns are present
-                // (BrowserAct naturally reads table left-to-right, maintaining KBANK website order)
+                // Resolve rate fields — BrowserAct returns varying key names and counts (5-6+ rate columns)
+                // Strategy: try fuzzy/named matching first (works with any field count),
+                //           fall back to positional mapping only for exactly 5 generic keys
                 const metaKeys = new Set(['currency', 'currency_code', 'currency_name', 'currency_pair', 'denomination', 'unit', 'unit_range', 'date_time', 'datetime', 'date', 'time', 'round']);
                 const rateKeys = Object.keys(item).filter(k => !metaKeys.has(k.toLowerCase()) && item[k] !== null && String(item[k]).trim() !== '');
 
                 let sellTt, sellNotes, buyTt, buySight, buyNotes;
 
-                if (rateKeys.length === 5) {
+                // 1. Try fuzzy/named matching first (handles any number of fields)
+                sellTt = resolveField(item, ['bank_sell_tt_draft_t_cheques', 'bank_selling_tt_draft_t_cheques', 'bank_selling_telex_transfer', 'tt_draft_t_cheques', 'tt_draft', 'selling_tt']);
+                sellNotes = resolveField(item, ['bank_sell_bank_notes', 'bank_selling_bank_notes', 'bank_notes_sell', 'bank_notes_selling', 'bank_selling_notes', 'selling_notes']);
+                buyTt = resolveField(item, ['bank_buy_telex_transfer', 'bank_buying_telex_transfer', 'telex_transfer', 'buying_tt', 'tt_buying']);
+                buySight = resolveField(item, ['bank_buy_export_sight_bill', 'bank_buying_export_sight_bill', 'export_sight_bill', 'sight_bill', 'export_bill']);
+                buyNotes = resolveField(item, ['bank_buy_bank_notes', 'bank_buying_bank_notes', 'bank_notes_buy', 'bank_notes_buying', 'bank_buying_notes', 'buying_notes']);
+
+                // 2. Fallback to positional mapping only if fuzzy didn't resolve sellTt
+                //    (only safe when exactly 5 rate keys = KBANK's standard column order)
+                if (sellTt === undefined && rateKeys.length === 5) {
+                    console.log(`KBANK: Using positional mapping for ${finalCurrency} (5 rate keys, fuzzy failed)`);
                     buySight = item[rateKeys[0]];
                     buyTt = item[rateKeys[1]];
                     buyNotes = item[rateKeys[2]];
                     sellTt = item[rateKeys[3]];
                     sellNotes = item[rateKeys[4]];
-                } else {
-                    console.log(`KBANK: Fallback to fuzzy match for ${finalCurrency} (found ${rateKeys.length} rate keys)`);
-                    sellTt = resolveField(item, ['bank_selling_tt_draft_t_cheques', 'bank_selling_telex_transfer', 'tt_draft_t_cheques', 'tt_draft', 'selling_tt']);
-                    sellNotes = resolveField(item, ['bank_selling_bank_notes', 'bank_notes_sell', 'bank_notes_selling', 'bank_selling_notes', 'selling_notes']);
-                    buyTt = resolveField(item, ['bank_buying_telex_transfer', 'telex_transfer', 'buying_tt', 'tt_buying']);
-                    buySight = resolveField(item, ['bank_buying_export_sight_bill', 'export_sight_bill', 'sight_bill', 'export_bill']);
-                    buyNotes = resolveField(item, ['bank_buying_bank_notes', 'bank_notes_buy', 'bank_notes_buying', 'bank_buying_notes', 'buying_notes']);
+                } else if (sellTt === undefined) {
+                    console.warn(`KBANK: Could not resolve rate fields for ${finalCurrency} (${rateKeys.length} keys: ${rateKeys.join(', ')})`);
                 }
 
                 rates.push({
