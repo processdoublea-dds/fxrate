@@ -157,10 +157,10 @@ export class KbankCollector implements Collector {
                 let sellTt, sellNotes, buyTt, buySight, buyNotes;
 
                 // 1. Try fuzzy/named matching first (handles any number of fields)
-                sellTt = resolveField(item, ['bank_sell_tt_draft_t_cheques', 'bank_selling_tt_draft_t_cheques', 'bank_selling_telex_transfer', 'tt_draft_t_cheques', 'tt_draft', 'selling_tt']);
+                sellTt = resolveField(item, ['tt_draft_tcheques_sell', 'bank_sell_tt_draft_t_cheques', 'bank_selling_tt_draft_t_cheques', 'bank_selling_telex_transfer', 'tt_draft_t_cheques', 'tt_draft', 'selling_tt']);
                 sellNotes = resolveField(item, ['bank_sell_bank_notes', 'bank_selling_bank_notes', 'bank_notes_sell', 'bank_notes_selling', 'bank_selling_notes', 'selling_notes']);
-                buyTt = resolveField(item, ['bank_buy_telex_transfer', 'bank_buying_telex_transfer', 'telex_transfer', 'buying_tt', 'tt_buying']);
-                buySight = resolveField(item, ['bank_buy_export_sight_bill', 'bank_buying_export_sight_bill', 'export_sight_bill', 'sight_bill', 'export_bill']);
+                buyTt = resolveField(item, ['telex_transfer_buy', 'bank_buy_telex_transfer', 'bank_buying_telex_transfer', 'telex_transfer', 'buying_tt', 'tt_buying']);
+                buySight = resolveField(item, ['export_sight_bill_buy', 'bank_buy_export_sight_bill', 'bank_buying_export_sight_bill', 'export_sight_bill', 'sight_bill', 'export_bill']);
                 buyNotes = resolveField(item, ['bank_buy_bank_notes', 'bank_buying_bank_notes', 'bank_notes_buy', 'bank_notes_buying', 'bank_buying_notes', 'buying_notes']);
 
                 // 2. Fallback to positional mapping only if fuzzy didn't resolve sellTt
