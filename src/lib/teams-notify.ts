@@ -148,7 +148,6 @@ export async function notifyTeamsError(source: string, error: string) {
 export async function notifyTeamsVerification(
     allSourcesComplete: boolean,
     missingSources: string[],
-    comparisonStats: any,
     rateDate: string
 ) {
     if (!WEBHOOK_URL) return;
@@ -156,14 +155,6 @@ export async function notifyTeamsVerification(
     const completenessText = allSourcesComplete
         ? `✅ **All 5 Data Sources Fetched Successfully!**`
         : `❌ **Missing Data Sources:** ${missingSources.join(', ')}`;
-
-    let statsText = '';
-    if (comparisonStats) {
-        statsText = `**Sys vs AppScript Match:** ${comparisonStats.matchPct}%\n\n`;
-        statsText += `- 🟢 Matched Fields: ${comparisonStats.matchFields}\n`;
-        statsText += `- 🔴 Diff Fields: ${comparisonStats.diffFields}\n`;
-        statsText += `- ⚠️ Missing in Sys: ${comparisonStats.missingInSys}\n`;
-    }
 
     const card = {
         type: 'message',
@@ -184,11 +175,6 @@ export async function notifyTeamsVerification(
                         {
                             type: 'TextBlock',
                             text: completenessText,
-                            wrap: true,
-                        },
-                        {
-                            type: 'TextBlock',
-                            text: statsText,
                             wrap: true,
                         }
                     ],

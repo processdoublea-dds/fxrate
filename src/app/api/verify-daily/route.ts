@@ -27,31 +27,15 @@ export async function GET(request: NextRequest) {
         const missingSources = expectedSources.filter(s => !actualSources.has(s));
         const allComplete = missingSources.length === 0;
 
-        // 2. Run Comparison
-        const host = request.headers.get('host') || 'localhost:3000';
-        const proto = request.headers.get('x-forwarded-proto') || 'https';
-        const compareUrl = `${proto}://${host}/api/compare`;
+        const rateDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 
-        const compRes = await fetch(compareUrl, { next: { revalidate: 0 } });
-        let comparisonStats = null;
-        let rateDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
-
-        if (compRes.ok) {
-            const compData = await compRes.json();
-            comparisonStats = compData.summary;
-            if (compData.date) rateDate = compData.date;
-        } else {
-            console.error('Compare API failed:', compRes.status);
-        }
-
-        // 3. Notify Teams
-        await notifyTeamsVerification(allComplete, missingSources, comparisonStats, rateDate);
+        // 2. Notify Teams
+        await notifyTeamsVerification(allComplete, missingSources, rateDate);
 
         return NextResponse.json({
             success: true,
             allComplete,
-            missingSources,
-            comparisonStats
+            missingSources
         });
 
     } catch (error) {
