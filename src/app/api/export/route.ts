@@ -25,6 +25,12 @@ function getPreviousBusinessDate(dateStr: string): string {
     return d.toISOString().split('T')[0];
 }
 
+function getYesterdayDate(dateStr: string): string {
+    const d = new Date(dateStr + 'T12:00:00');
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+}
+
 function formatTimestamp(ts: string | null): string {
     if (!ts) return '';
     try {
@@ -51,8 +57,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date') || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 
-    // BOT + Bloomberg use previous business date
+    // BOT + Bloomberg use previous business date; BTN/MNT use yesterday
     const botDate = getPreviousBusinessDate(date);
+    const yesterdayDate = getYesterdayDate(date);
 
     // Fetch Thai bank rates (SCB, KTB, KBANK) for the requested date
     const { data: bankRates, error: bankError } = await supabaseAdmin
@@ -70,11 +77,11 @@ export async function GET(request: NextRequest) {
         );
     }
 
-    // Fetch BOT + Bloomberg rates (check both dates)
+    // Fetch BOT + Bloomberg rates (check all relevant dates)
     const { data: botRates, error: botError } = await supabaseAdmin
         .from('exchange_rates')
-        .select('source, currency, currency_label, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, bank_timestamp')
-        .in('rate_date', [date, botDate])
+        .select('source, currency, currency_label, rate_date, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, bank_timestamp')
+        .in('rate_date', [date, botDate, yesterdayDate])
         .in('source', ['BOT', 'BLOOMBERG'])
         .order('source')
         .order('currency');
