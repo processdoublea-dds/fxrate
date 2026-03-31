@@ -133,47 +133,43 @@ export class KbankCollector implements Collector {
                 if (seen.has(finalCurrency)) continue;
                 seen.add(finalCurrency);
 
-                // Resolve bank datetime — BrowserAct returns varying field names
-                // Priority: datetime (most common) → date_time → date+time combo
-                const dateTimeStr = item.datetime || item.date_time
-                    || (item.date && item.time ? `${item.date} ${item.time}` : null);
-                // If no datetime found or parsing fails, leave undefined so route.ts timestamp filter can reject stale data
+                // Resolve bank datetime — BrowserAct returns varying formats
+                // Format 1: "2026-03-31 08:13:30" (ISO-like)
+                // Format 2: "31 March 2026 08:13:55" (human-readable)
+                const dateTimeStr = item.datetime || item.date_time || item.date || null;
                 let bankTimestamp: string | undefined = undefined;
                 if (dateTimeStr) {
-                    const parsedDate = new Date(`${dateTimeStr.replace(' ', 'T')}+07:00`);
-                    if (!isNaN(parsedDate.getTime())) {
-                        bankTimestamp = parsedDate.toISOString();
-                    } else {
-                        console.warn(`KBANK: Invalid datetime string returned by BrowserAct: ${dateTimeStr}`);
+                    bankTimestamp = parseKbankDateTime(dateTimeStr);
+                    if (!bankTimestamp) {
+                        console.warn(`KBANK: Could not parse datetime: ${dateTimeStr}`);
                     }
                 }
 
-                // Resolve rate fields — BrowserAct returns varying key names and counts (5-6+ rate columns)
-                // Strategy: try fuzzy/named matching first (works with any field count),
-                //           fall back to positional mapping only for exactly 5 generic keys
-                const metaKeys = new Set(['currency', 'currency_code', 'currency_name', 'currency_pair', 'denomination', 'unit', 'unit_range', 'date_time', 'datetime', 'date', 'time', 'round']);
-                const rateKeys = Object.keys(item).filter(k => !metaKeys.has(k.toLowerCase()) && item[k] !== null && String(item[k]).trim() !== '');
+                // Resolve rate fields — KBANK always returns exactly 5 rate fields in fixed order
+                // Order: [buy_sight, buy_tt, buy_notes, sell_tt, sell_notes]
+                // Field names may vary (bank_* prefix, _rate suffix) but order is ALWAYS consistent
+                const metaKeys = new Set([
+                    'currency', 'currency_code', 'currency_name', 'currency_pair',
+                    'denomination', 'unit', 'unit_range',
+                    'date_time', 'datetime', 'date', 'time', 'round'
+                ]);
+                const rateKeys = Object.keys(item).filter(k =>
+                    !metaKeys.has(k.toLowerCase()) &&
+                    item[k] !== null &&
+                    String(item[k]).trim() !== ''
+                );
 
                 let sellTt, sellNotes, buyTt, buySight, buyNotes;
 
-                // 1. Try fuzzy/named matching first (handles any number of fields)
-                sellTt = resolveField(item, ['tt_draft_tcheques_sell', 'bank_sell_tt_draft_t_cheques', 'bank_selling_tt_draft_t_cheques', 'bank_selling_telex_transfer', 'tt_draft_t_cheques', 'tt_draft', 'selling_tt']);
-                sellNotes = resolveField(item, ['bank_sell_bank_notes', 'bank_selling_bank_notes', 'bank_notes_sell', 'bank_notes_selling', 'bank_selling_notes', 'selling_notes']);
-                buyTt = resolveField(item, ['telex_transfer_buy', 'bank_buy_telex_transfer', 'bank_buying_telex_transfer', 'telex_transfer', 'buying_tt', 'tt_buying']);
-                buySight = resolveField(item, ['export_sight_bill_buy', 'bank_buy_export_sight_bill', 'bank_buying_export_sight_bill', 'export_sight_bill', 'sight_bill', 'export_bill']);
-                buyNotes = resolveField(item, ['bank_buy_bank_notes', 'bank_buying_bank_notes', 'bank_notes_buy', 'bank_notes_buying', 'bank_buying_notes', 'buying_notes']);
-
-                // 2. Fallback to positional mapping only if fuzzy didn't resolve sellTt
-                //    (only safe when exactly 5 rate keys = KBANK's standard column order)
-                if (sellTt === undefined && rateKeys.length === 5) {
-                    console.log(`KBANK: Using positional mapping for ${finalCurrency} (5 rate keys, fuzzy failed)`);
-                    buySight = item[rateKeys[0]];
-                    buyTt = item[rateKeys[1]];
-                    buyNotes = item[rateKeys[2]];
-                    sellTt = item[rateKeys[3]];
-                    sellNotes = item[rateKeys[4]];
-                } else if (sellTt === undefined) {
-                    console.warn(`KBANK: Could not resolve rate fields for ${finalCurrency} (${rateKeys.length} keys: ${rateKeys.join(', ')})`);
+                // Use positional mapping (KBANK always returns 5 rate fields in fixed order)
+                if (rateKeys.length >= 5) {
+                    buySight = item[rateKeys[0]];  // export_sight_bill_buy_rate / bank_buy_export_sight_bill
+                    buyTt = item[rateKeys[1]];     // telex_transfer_buy_rate / bank_buy_telex_transfer
+                    buyNotes = item[rateKeys[2]];  // bank_notes_buy_rate / bank_buy_bank_notes
+                    sellTt = item[rateKeys[3]];    // tt_draft_cheques_sell_rate / bank_sell_tt_draft_t_cheques
+                    sellNotes = item[rateKeys[4]]; // bank_notes_sell_rate / bank_sell_bank_notes
+                } else {
+                    console.warn(`KBANK: Expected 5 rate fields, got ${rateKeys.length} for ${finalCurrency}. Keys: ${rateKeys.join(', ')}`);
                 }
 
                 rates.push({
@@ -230,40 +226,46 @@ function normalizeCurrencyCode(item: Record<string, any>): string | null {
 }
 
 /**
- * Resolve a field value from BrowserAct item using known aliases + fuzzy keyword fallback.
- * BrowserAct naming is inconsistent across runs — this handles any variant.
- *
- * Strategy:
- *   1. Try each known alias (exact match)
- *   2. Fuzzy: check if any remaining key contains keywords derived from aliases
- *      e.g. aliases ['bank_notes_sell', ...] → keywords ['sell', 'note']
+ * Parse KBANK datetime string from BrowserAct.
+ * Handles multiple formats:
+ *   - "2026-03-31 08:13:30" (ISO-like, most common)
+ *   - "31 March 2026 08:13:55" (human-readable, sometimes appears)
+ *   - "2026-03-31" (date only, fallback to 00:00:00)
  */
-function resolveField(item: Record<string, any>, aliases: string[]): any {
-    // 1. Exact match on known aliases
-    for (const alias of aliases) {
-        if (item[alias] !== undefined) return item[alias];
-    }
+function parseKbankDateTime(dateTimeStr: string): string | undefined {
+    if (!dateTimeStr) return undefined;
 
-    // 2. Fuzzy keyword match — extract keywords from aliases and search item keys
-    const skipKeys = new Set(['currency', 'currency_code', 'denomination', 'date_time', 'date', 'time', 'round']);
-    const itemKeys = Object.keys(item).filter(k => !skipKeys.has(k));
+    const trimmed = dateTimeStr.trim();
 
-    // Build keyword set from aliases (split by underscore, take meaningful words)
-    const meaningfulWords = new Set<string>();
-    for (const alias of aliases) {
-        for (const word of alias.split('_')) {
-            if (word.length > 2 && !['bank', 'the', 'and'].includes(word)) {
-                meaningfulWords.add(word.toLowerCase());
-            }
+    // Try Format 1: "2026-03-31 08:13:30" or "2026-03-31"
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+        const isoString = trimmed.includes(' ') ? trimmed.replace(' ', 'T') : `${trimmed}T00:00:00`;
+        const parsed = new Date(`${isoString}+07:00`);
+        if (!isNaN(parsed.getTime())) {
+            return parsed.toISOString();
         }
     }
 
-    // Find a key that contains the most keywords
-    for (const key of itemKeys) {
-        const keyLower = key.toLowerCase();
-        const matches = [...meaningfulWords].filter(w => keyLower.includes(w));
-        if (matches.length >= 2 || (meaningfulWords.size === 1 && matches.length === 1)) {
-            return item[key];
+    // Try Format 2: "31 March 2026 08:13:55" or "31 March 2026"
+    const monthMap: Record<string, string> = {
+        Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+        Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12',
+        January: '01', February: '02', March: '03', April: '04', June: '06',
+        July: '07', August: '08', September: '09', October: '10', November: '11', December: '12'
+    };
+
+    const match = trimmed.match(/(\d{1,2})\s+(\w+)\s+(\d{4})(?:\s+(\d{2}:\d{2}:\d{2}))?/);
+    if (match) {
+        const [, day, month, year, time] = match;
+        const monthNum = monthMap[month] || monthMap[month.substring(0, 3)];
+        if (monthNum) {
+            const timeStr = time ?? '00:00:00';
+            const paddedDay = day.padStart(2, '0');
+            const isoString = `${year}-${monthNum}-${paddedDay}T${timeStr}+07:00`;
+            const parsed = new Date(isoString);
+            if (!isNaN(parsed.getTime())) {
+                return parsed.toISOString();
+            }
         }
     }
 
