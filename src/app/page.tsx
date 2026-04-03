@@ -45,9 +45,6 @@ interface Toast {
 // Source cards order: SCB, KTB, KBANK, BOT (matches reference AppScript)
 const SOURCE_CARDS = ['SCB', 'KTB', 'KBANK', 'BOT'];
 
-// For manual fetch — all 5 actual sources
-const FETCH_SOURCES = ['SCB', 'KTB', 'KBANK', 'BOT', 'BLOOMBERG'];
-
 // Display order for sources in table (matches reference AppScript)
 const SOURCE_ORDER = ['SCB', 'KTB', 'KBANK', 'BOT'];
 
@@ -64,7 +61,6 @@ export default function Dashboard() {
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchingSource, setFetchingSource] = useState<string | null>(null);
-  const [fetchingAll, setFetchingAll] = useState(false);
   const [search, setSearch] = useState('');
   const [filterSource, setFilterSource] = useState<string>('ALL');
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -151,14 +147,6 @@ export default function Dashboard() {
     }
   }
 
-  async function handleFetchAll() {
-    setFetchingAll(true);
-    for (const source of FETCH_SOURCES) {
-      await handleFetchSource(source);
-    }
-    setFetchingAll(false);
-  }
-
   function changeDate(delta: number) {
     const d = new Date(date);
     d.setDate(d.getDate() + delta);
@@ -226,7 +214,7 @@ export default function Dashboard() {
                 <button
                   className={`fetch-btn ${isFetching ? 'loading' : ''}`}
                   onClick={() => source === 'BOT' ? handleFetchBotBloomberg() : handleFetchSource(source)}
-                  disabled={isFetching || fetchingAll}
+                  disabled={isFetching}
                 >
                   {isFetching ? (
                     <><span className="spinner">⟳</span> Fetching...</>
@@ -263,17 +251,6 @@ export default function Dashboard() {
               <option value="BOT">BOT</option>
             </select>
             <button
-              className="fetch-all-btn"
-              onClick={handleFetchAll}
-              disabled={fetchingAll || fetchingSource !== null}
-            >
-              {fetchingAll ? (
-                <><span className="spinner">⟳</span> Fetching All...</>
-              ) : (
-                <>⟳ Fetch All Sources</>
-              )}
-            </button>
-            <button
               className="json-api-btn"
               onClick={() => window.open(`/api/export?date=${date}`, '_blank')}
               title="Open JSON API in new tab"
@@ -282,11 +259,19 @@ export default function Dashboard() {
             </button>
             <button
               className="json-api-btn"
-              onClick={() => window.open(`/compare`, '_blank')}
-              title="Compare with reference data"
+              onClick={() => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/bot_exchange_rate.aspx', '_blank')}
+              title="AVG BOT > Netsuite"
               style={{ background: 'linear-gradient(135deg, #7c3aed, #a78bfa)' }}
             >
-              📊 Compare
+              📊 AVG BOT &gt; Netsuite
+            </button>
+            <button
+              className="json-api-btn"
+              onClick={() => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/avg_exchange_rate.aspx', '_blank')}
+              title="AVG 3THAI > Netsuite"
+              style={{ background: 'linear-gradient(135deg, #059669, #34d399)' }}
+            >
+              📈 AVG 3THAI &gt; Netsuite
             </button>
           </div>
         </div>
@@ -301,7 +286,7 @@ export default function Dashboard() {
           <div className="empty-state">
             <div className="icon">📊</div>
             <h3>No rates for {date}</h3>
-            <p>Click &ldquo;Fetch All Sources&rdquo; to fetch rates</p>
+            <p>Click &ldquo;Fetch Now&rdquo; on each source card to fetch rates</p>
           </div>
         ) : (
           <div className="rate-table-wrapper">
