@@ -259,6 +259,14 @@ export default function Dashboard() {
             </button>
             <button
               className="json-api-btn"
+              onClick={() => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/currency.aspx', '_blank')}
+              title="Raw Rates > Mango"
+              style={{ background: 'linear-gradient(135deg, #f59e0b, #fbbf24)' }}
+            >
+              📤 Raw Rates &gt; Mango
+            </button>
+            <button
+              className="json-api-btn"
               onClick={() => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/bot_exchange_rate.aspx', '_blank')}
               title="AVG BOT > Netsuite"
               style={{ background: 'linear-gradient(135deg, #7c3aed, #a78bfa)' }}
