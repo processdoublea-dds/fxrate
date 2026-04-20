@@ -646,6 +646,215 @@ body {
   }
 }
 
+/* --- PIN Modal --- */
+.pin-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.pin-modal {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 24px;
+  padding: 36px 40px 28px;
+  width: 320px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  animation: modalSlideUp 0.3s ease;
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.pin-modal.pin-shake {
+  animation: shake 0.5s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  10%, 50%, 90% { transform: translateX(-8px); }
+  30%, 70% { transform: translateX(8px); }
+}
+
+.pin-modal.pin-success {
+  border-color: rgba(34, 197, 94, 0.5);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6), 0 0 30px rgba(34, 197, 94, 0.2);
+}
+
+.pin-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.pin-lock-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+}
+
+.pin-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.pin-action-label {
+  font-size: 13px;
+  color: var(--accent-light);
+  font-weight: 500;
+  padding: 4px 12px;
+  background: var(--accent-bg);
+  border-radius: 8px;
+  display: inline-block;
+}
+
+.pin-dots {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.pin-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--text-dim);
+  background: transparent;
+  transition: all 0.15s ease;
+}
+
+.pin-dot.filled {
+  background: var(--accent-light);
+  border-color: var(--accent-light);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.4);
+}
+
+.pin-dot.dot-success {
+  background: var(--green);
+  border-color: var(--green);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+}
+
+.pin-error {
+  text-align: center;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 500;
+  height: 24px;
+  line-height: 24px;
+}
+
+.pin-dots + .pin-pad {
+  margin-top: 20px;
+}
+
+.pin-dots + .pin-error {
+  margin-top: 4px;
+}
+
+.pin-error + .pin-pad {
+  margin-top: 4px;
+}
+
+.pin-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.pin-key {
+  width: 100%;
+  aspect-ratio: 1.4;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 600;
+  font-family: inherit;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pin-key:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+  transform: scale(1.05);
+}
+
+.pin-key:active:not(:disabled) {
+  transform: scale(0.95);
+  background: rgba(99, 102, 241, 0.25);
+}
+
+.pin-key:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.pin-key-empty {
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+.pin-key-empty:hover {
+  background: transparent !important;
+  transform: none !important;
+}
+
+.pin-key-backspace {
+  font-size: 20px;
+  color: var(--text-muted);
+}
+
+.pin-cancel {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pin-cancel:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
 /* --- Responsive --- */
 @media (max-width: 1200px) {
   .main-content {

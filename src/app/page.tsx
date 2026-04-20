@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import PinModal from '@/components/PinModal';
 
 interface RateRow {
   id: number;
@@ -56,6 +57,12 @@ const CURRENCY_ORDER: Record<string, string[]> = {
   BOT: ['MXN', 'KWD', 'MMK', 'BDT', 'CZK', 'KHR', 'KES', 'LAK', 'RUB', 'EGP', 'PLN', 'LKR', 'IQD', 'JOD', 'QAR', 'MVR', 'NPR', 'ILS', 'HUF', 'PKR', 'USD', 'BTN', 'MNT'],
 };
 
+// Pending action that requires PIN confirmation
+interface PendingAction {
+  label: string;
+  action: () => void;
+}
+
 export default function Dashboard() {
   const [date, setDate] = useState(getTodayThai());
   const [data, setData] = useState<ApiResponse | null>(null);
@@ -64,6 +71,7 @@ export default function Dashboard() {
   const [search, setSearch] = useState('');
   const [filterSource, setFilterSource] = useState<string>('ALL');
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -213,7 +221,10 @@ export default function Dashboard() {
                 </div>
                 <button
                   className={`fetch-btn ${isFetching ? 'loading' : ''}`}
-                  onClick={() => source === 'BOT' ? handleFetchBotBloomberg() : handleFetchSource(source)}
+                  onClick={() => setPendingAction({
+                    label: `Fetch Now — ${cardLabel}`,
+                    action: () => source === 'BOT' ? handleFetchBotBloomberg() : handleFetchSource(source),
+                  })}
                   disabled={isFetching}
                 >
                   {isFetching ? (
@@ -259,7 +270,10 @@ export default function Dashboard() {
             </button>
             <button
               className="json-api-btn"
-              onClick={() => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/currency.aspx', '_blank')}
+              onClick={() => setPendingAction({
+                label: 'Raw Rates > Mango',
+                action: () => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/currency.aspx', '_blank'),
+              })}
               title="Raw Rates > Mango"
               style={{ background: 'linear-gradient(135deg, #f59e0b, #fbbf24)' }}
             >
@@ -267,7 +281,10 @@ export default function Dashboard() {
             </button>
             <button
               className="json-api-btn"
-              onClick={() => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/bot_exchange_rate.aspx', '_blank')}
+              onClick={() => setPendingAction({
+                label: 'AVG BOT > Netsuite',
+                action: () => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/bot_exchange_rate.aspx', '_blank'),
+              })}
               title="AVG BOT > Netsuite"
               style={{ background: 'linear-gradient(135deg, #7c3aed, #a78bfa)' }}
             >
@@ -275,7 +292,10 @@ export default function Dashboard() {
             </button>
             <button
               className="json-api-btn"
-              onClick={() => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/avg_exchange_rate.aspx', '_blank')}
+              onClick={() => setPendingAction({
+                label: 'AVG 3THAI > Netsuite',
+                action: () => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/avg_exchange_rate.aspx', '_blank'),
+              })}
               title="AVG 3THAI > Netsuite"
               style={{ background: 'linear-gradient(135deg, #059669, #34d399)' }}
             >
@@ -350,6 +370,18 @@ export default function Dashboard() {
           </div>
         )}
       </main>
+
+      {/* PIN Confirmation Modal */}
+      <PinModal
+        isOpen={pendingAction !== null}
+        actionLabel={pendingAction?.label || ''}
+        onSuccess={() => {
+          const action = pendingAction?.action;
+          setPendingAction(null);
+          if (action) action();
+        }}
+        onCancel={() => setPendingAction(null)}
+      />
 
       {/* Toast Notifications */}
       {toasts.map((toast) => (
