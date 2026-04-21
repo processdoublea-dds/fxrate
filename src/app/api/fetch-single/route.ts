@@ -58,10 +58,25 @@ export async function POST(request: NextRequest) {
 
         const durationMs = Date.now() - startTime;
 
+        const EXPECTED_COUNTS: Record<string, number> = {
+            SCB: 27,
+            KTB: 22,
+            KBANK: 26,
+            BOT: 23,
+            BLOOMBERG: 2,
+        };
+
         if (logId) {
             try {
+                let finalStatus: 'success' | 'partial' | 'failed' = 'success';
+                if (recordsCount === 0) {
+                    finalStatus = 'failed';
+                } else if (EXPECTED_COUNTS[sourceName] && recordsCount < EXPECTED_COUNTS[sourceName]) {
+                    finalStatus = 'partial';
+                }
+
                 await updateScrapeLog(logId, {
-                    status: recordsCount > 0 ? 'success' : 'partial',
+                    status: finalStatus,
                     records_count: recordsCount,
                     duration_ms: durationMs,
                 });
