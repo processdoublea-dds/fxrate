@@ -271,8 +271,8 @@ export default function Dashboard() {
             <button
               className="json-api-btn"
               onClick={() => setPendingAction({
-                label: 'Raw Rates > Mango',
-                action: () => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/currency.aspx', '_blank'),
+                label: `Raw Rates > Mango (${date})`,
+                action: () => window.open(`https://realestate.mygreentownhousing.com/erp-aa/currency/currency.aspx?date=${date}`, '_blank'),
               })}
               title="Raw Rates > Mango"
               style={{ background: 'linear-gradient(135deg, #f59e0b, #fbbf24)' }}
@@ -282,8 +282,8 @@ export default function Dashboard() {
             <button
               className="json-api-btn"
               onClick={() => setPendingAction({
-                label: 'AVG BOT > Netsuite',
-                action: () => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/bot_exchange_rate.aspx', '_blank'),
+                label: `AVG BOT > Netsuite (${date})`,
+                action: () => window.open(`https://realestate.mygreentownhousing.com/erp-aa/currency/bot_exchange_rate.aspx?datadate=${date}`, '_blank'),
               })}
               title="AVG BOT > Netsuite"
               style={{ background: 'linear-gradient(135deg, #7c3aed, #a78bfa)' }}
@@ -293,8 +293,8 @@ export default function Dashboard() {
             <button
               className="json-api-btn"
               onClick={() => setPendingAction({
-                label: 'AVG 3THAI > Netsuite',
-                action: () => window.open('https://realestate.mygreentownhousing.com/erp-aa/currency/avg_exchange_rate.aspx', '_blank'),
+                label: `AVG 3THAI > Netsuite (${date})`,
+                action: () => window.open(`https://realestate.mygreentownhousing.com/erp-aa/currency/avg_exchange_rate.aspx?datadate=${date}`, '_blank'),
               })}
               title="AVG 3THAI > Netsuite"
               style={{ background: 'linear-gradient(135deg, #059669, #34d399)' }}
