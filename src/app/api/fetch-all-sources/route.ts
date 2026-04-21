@@ -253,9 +253,11 @@ async function fetchWithRetry(
 
             if (result.rates.length > 0) {
                 if (enableDedup) {
-                    const alreadyFetched = await hasRateForToday(collector.name, rateDate, dedupCurrency);
+                    const EXPECTED_COUNTS: Record<string, number> = { BOT: 23, BLOOMBERG: 2 };
+                    const expected = EXPECTED_COUNTS[collector.name];
+                    const alreadyFetched = await hasRateForToday(collector.name, rateDate, dedupCurrency, expected);
                     if (alreadyFetched) {
-                        console.log(`[${collector.name}] Already have data for ${rateDate}, skipping`);
+                        console.log(`[${collector.name}] Already have complete data (${expected}) for ${rateDate}, skipping`);
                         if (logId) {
                             try { await updateScrapeLog(logId, { status: 'skipped', completed_at: new Date().toISOString(), records_count: 0, duration_ms: durationMs, error_message: `Data for ${rateDate} already exists` }); }
                             catch (e) { console.error(`Failed to update scrape log:`, e); }
@@ -298,9 +300,15 @@ async function fetchBankWithRetry(
     rateDate: string,
     maxRetries: number
 ): Promise<FetchSummary> {
-    const alreadyFetched = await hasRateForToday(collector.name, rateDate);
+    const EXPECTED_COUNTS: Record<string, number> = {
+        SCB: 27,
+        KTB: 22,
+        KBANK: 26,
+    };
+    const expected = EXPECTED_COUNTS[collector.name];
+    const alreadyFetched = await hasRateForToday(collector.name, rateDate, undefined, expected);
     if (alreadyFetched) {
-        console.log(`[${collector.name}] Already fetched for ${rateDate}, skipping`);
+        console.log(`[${collector.name}] Already fetched (complete: ${expected}) for ${rateDate}, skipping`);
         return { source: collector.name, status: 'skipped', recordsCount: 0, durationMs: 0 };
     }
 

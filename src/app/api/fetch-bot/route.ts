@@ -97,10 +97,11 @@ async function fetchBotWithRetry(
             const rateDate = result.rateDate;
 
             if (result.rates.length > 0) {
-                // Dedup check: only insert if we don't already have this date's data
-                const alreadyFetched = await hasRateForToday(collector.name, rateDate);
+                // Dedup check: only insert if we don't already have this date's COMPLETELY FETCHED data
+                const EXPECTED_BOT = 23;
+                const alreadyFetched = await hasRateForToday(collector.name, rateDate, undefined, EXPECTED_BOT);
                 if (alreadyFetched) {
-                    console.log(`[${collector.name}] Already have data for ${rateDate}, skipping insert`);
+                    console.log(`[${collector.name}] Already have complete data (${EXPECTED_BOT}) for ${rateDate}, skipping insert`);
 
                     if (logId) {
                         try {

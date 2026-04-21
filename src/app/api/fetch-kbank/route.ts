@@ -51,10 +51,11 @@ export async function GET(request: Request) {
         });
     }
 
-    // ── DEDUP: Check if KBANK already fetched ──
-    const alreadyFetched = await hasRateForToday('KBANK', rateDate);
+    // ── DEDUP: Check if KBANK already fetched AND complete ──
+    const EXPECTED_KBANK = 26;
+    const alreadyFetched = await hasRateForToday('KBANK', rateDate, undefined, EXPECTED_KBANK);
     if (alreadyFetched) {
-        console.log(`[KBANK] Already fetched for ${rateDate}, skipping`);
+        console.log(`[KBANK] Already fetched (complete: 26) for ${rateDate}, skipping`);
         return NextResponse.json({
             success: true,
             summaries: [{

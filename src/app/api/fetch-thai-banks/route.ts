@@ -175,10 +175,18 @@ async function fetchSourceWithRetryAndDedup(
     maxRetries: number = 3
 ): Promise<FetchSummary> {
 
-    // DEDUP: Check if rate already exists for today
-    const alreadyFetched = await hasRateForToday(collector.name, rateDate);
+    const EXPECTED_COUNTS: Record<string, number> = {
+        SCB: 27,
+        KTB: 22,
+        KBANK: 26,
+        BOT: 23,
+    };
+
+    // DEDUP: Check if rate already exists for today and is COMPLETE
+    const expected = EXPECTED_COUNTS[collector.name];
+    const alreadyFetched = await hasRateForToday(collector.name, rateDate, undefined, expected);
     if (alreadyFetched) {
-        console.log(`${collector.name} already fetched for ${rateDate}, skipping`);
+        console.log(`${collector.name} already fetched (complete: ${expected}) for ${rateDate}, skipping`);
         return {
             source: collector.name,
             status: 'skipped',

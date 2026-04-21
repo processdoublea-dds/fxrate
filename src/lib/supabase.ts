@@ -26,10 +26,11 @@ export async function isBankHoliday(dateStr: string): Promise<string | null> {
 
 // Check if rate already exists for given date + source AND the bank_timestamp matches the requested date
 // Optional currency filter to avoid dedup clashes (e.g. Bloomberg saves BTN/MNT as source='BOT')
-export async function hasRateForToday(source: string, rateDate: string, currency?: string): Promise<boolean> {
+// If expectedCount is provided, checks if we have at least that many records.
+export async function hasRateForToday(source: string, rateDate: string, currency?: string, expectedCount?: number): Promise<boolean> {
     let query = supabaseAdmin
         .from('exchange_rates')
-        .select('bank_timestamp')
+        .select('bank_timestamp', { count: 'exact' })
         .eq('source', source)
         .eq('rate_date', rateDate);
 
@@ -37,9 +38,14 @@ export async function hasRateForToday(source: string, rateDate: string, currency
         query = query.eq('currency', currency);
     }
 
-    const { data } = await query.limit(1);
+    const { data, count } = await query.limit(1);
 
     if (!data || data.length === 0) return false;
+
+    // Reject if we haven't fetched the full expected set of currencies yet
+    if (expectedCount !== undefined && count !== null && count < expectedCount) {
+        return false;
+    }
 
     // Check if the timestamp actually indicates an update for today
     const ts = data[0].bank_timestamp;
