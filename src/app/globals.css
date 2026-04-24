@@ -260,18 +260,13 @@ body {
 
 .fetch-btn-group {
   display: flex;
+  flex-direction: column;
   gap: 8px;
   width: 100%;
 }
 
 .fetch-btn-group .fetch-btn {
-  flex: 1;
-  min-width: 0;
-  padding-left: 8px;
-  padding-right: 8px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  width: 100%;
 }
 
 .fetch-btn-r1 {
