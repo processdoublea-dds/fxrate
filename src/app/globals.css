@@ -258,6 +258,29 @@ body {
   animation: pulse 1.5s infinite;
 }
 
+.fetch-btn-group {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.fetch-btn-group .fetch-btn {
+  flex: 1;
+}
+
+.fetch-btn-r1 {
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  background: rgba(245, 158, 11, 0.1) !important;
+  color: var(--amber) !important;
+  flex: 0 0 auto !important;
+  min-width: 60px;
+}
+
+.fetch-btn-r1:hover {
+  background: rgba(245, 158, 11, 0.25) !important;
+  border-color: #f59e0b !important;
+}
+
 @keyframes pulse {
 
   0%,

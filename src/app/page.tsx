@@ -120,6 +120,28 @@ export default function Dashboard() {
     }
   }
 
+  async function handleFetchKbankR1() {
+    setFetchingSource('KBANK_R1');
+    try {
+      const res = await fetch('/api/fetch-single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: 'KBANK', workflowId: '92244151077287699', skipDedup: true }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        addToast(`✓ KBANK R1: ${json.recordsCount} currencies (${(json.durationMs / 1000).toFixed(1)}s)`, 'success');
+        await fetchData();
+      } else {
+        addToast(`✕ KBANK R1: ${json.error}`, 'error');
+      }
+    } catch (err) {
+      addToast(`✕ KBANK R1: ${err instanceof Error ? err.message : 'Failed'}`, 'error');
+    } finally {
+      setFetchingSource(null);
+    }
+  }
+
   async function handleFetchBotBloomberg() {
     setFetchingSource('BOT');
     try {
@@ -194,6 +216,7 @@ export default function Dashboard() {
             const count = summary?.count || 0;
             const status = summary?.status || 'none';
             const isFetching = fetchingSource === source || (source === 'BOT' && fetchingSource === 'BLOOMBERG');
+            const isFetchingR1 = source === 'KBANK' && fetchingSource === 'KBANK_R1';
 
             const cardLabel = source === 'BOT'
               ? `BOT / Bloomberg`
@@ -219,20 +242,38 @@ export default function Dashboard() {
                     ? `Last: ${formatTime(summary.lastFetch)}`
                     : 'Not fetched today'}
                 </div>
-                <button
-                  className={`fetch-btn ${isFetching ? 'loading' : ''}`}
-                  onClick={() => setPendingAction({
-                    label: `Fetch Now — ${cardLabel}`,
-                    action: () => source === 'BOT' ? handleFetchBotBloomberg() : handleFetchSource(source),
-                  })}
-                  disabled={isFetching}
-                >
-                  {isFetching ? (
-                    <><span className="spinner">⟳</span> Fetching...</>
-                  ) : (
-                    <>⟳ Fetch Now</>
+                <div className="fetch-btn-group">
+                  <button
+                    className={`fetch-btn ${isFetching ? 'loading' : ''}`}
+                    onClick={() => setPendingAction({
+                      label: `Fetch Now — ${cardLabel}`,
+                      action: () => source === 'BOT' ? handleFetchBotBloomberg() : handleFetchSource(source),
+                    })}
+                    disabled={isFetching || isFetchingR1}
+                  >
+                    {isFetching ? (
+                      <><span className="spinner">⟳</span> Fetching...</>
+                    ) : (
+                      <>⟳ Fetch Now</>
+                    )}
+                  </button>
+                  {source === 'KBANK' && (
+                    <button
+                      className={`fetch-btn fetch-btn-r1 ${isFetchingR1 ? 'loading' : ''}`}
+                      onClick={() => setPendingAction({
+                        label: 'Fetch Now R1 — KBANK',
+                        action: () => handleFetchKbankR1(),
+                      })}
+                      disabled={isFetching || isFetchingR1}
+                    >
+                      {isFetchingR1 ? (
+                        <><span className="spinner">⟳</span> R1...</>
+                      ) : (
+                        <>⟳ R1</>
+                      )}
+                    </button>
                   )}
-                </button>
+                </div>
               </div>
             );
           })}

@@ -17,6 +17,11 @@ const KBANK_WORKFLOW_ID = '80827033896840284';
 
 export class KbankCollector implements Collector {
     name = 'KBANK';
+    private workflowId: string;
+
+    constructor(workflowId?: string) {
+        this.workflowId = workflowId || KBANK_WORKFLOW_ID;
+    }
 
     async fetch(): Promise<CollectorResult> {
         const runId = generateRunId();
@@ -31,11 +36,11 @@ export class KbankCollector implements Collector {
         }
 
         try {
-            console.log('KBANK: Triggering BrowserAct workflow...');
+            console.log(`KBANK: Triggering BrowserAct workflow (${this.workflowId})...`);
 
             // 1. Trigger the workflow
             const runRes = await axios.post(`${BROWSERACT_API}/run-task`, {
-                workflow_id: KBANK_WORKFLOW_ID
+                workflow_id: this.workflowId
             }, {
                 headers: {
                     'Authorization': `Bearer ${apiKey}`,

@@ -20,6 +20,8 @@ export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
         const sourceName = (body.source || '').toUpperCase();
+        const workflowId = body.workflowId || undefined;
+        const skipDedup = body.skipDedup === true;
 
         if (!collectors[sourceName]) {
             return NextResponse.json(
@@ -44,8 +46,11 @@ export async function POST(request: NextRequest) {
             console.error('Failed to insert scrape log:', logErr);
         }
 
+        // Use custom workflow ID for KBANK if provided (e.g. R1 button)
         const CollectorClass = collectors[sourceName];
-        const collector = new CollectorClass();
+        const collector = (sourceName === 'KBANK' && workflowId)
+            ? new KbankCollector(workflowId)
+            : new CollectorClass();
         const result = await collector.fetch();
 
         const rates = result.rates as Parameters<typeof insertRates>[0];
