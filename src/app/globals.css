@@ -260,12 +260,18 @@ body {
 
 .fetch-btn-group {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
 }
 
 .fetch-btn-group .fetch-btn {
   flex: 1;
+  min-width: 0;
+  padding-left: 8px;
+  padding-right: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fetch-btn-r1 {
@@ -273,7 +279,6 @@ body {
   background: rgba(245, 158, 11, 0.1) !important;
   color: var(--amber) !important;
   flex: 0 0 auto !important;
-  min-width: 60px;
 }
 
 .fetch-btn-r1:hover {
