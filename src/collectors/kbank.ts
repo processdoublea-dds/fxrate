@@ -111,21 +111,22 @@ export class KbankCollector implements Collector {
                 }
 
                 // Handle Kbank USD Denominations
-                // Only keep "USD 1" (or "USD1") → mapped to "USD"
-                // Skip other denominations (USD 5-20, USD 50-100) per business rules
+                // Mapping:
+                //   - "USD 50-100" (or "USD50-100") → mapped to "USD" (Main rate per user request)
+                //   - Other denominations (USD 1, USD 5-20) are skipped to avoid duplicates
                 let finalCurrency = currencyCode;
                 let currencyLabel = currencyCode;
 
                 if (currencyCode.startsWith('USD')) {
-                    if (currencyCode === 'USD1' || currencyCode === 'USD 1') {
+                    if (currencyCode === 'USD50-100' || currencyCode === 'USD 50-100') {
                         finalCurrency = 'USD';
-                        currencyLabel = 'US Dollar';
-                    } else if (currencyCode === 'USD') {
-                        // Plain "USD" without denomination — treat as main USD
+                        currencyLabel = 'US Dollar (50-100)';
+                    } else if (currencyCode === 'USD' && !seen.has('USD')) {
+                        // Plain "USD" without denomination — treat as main USD if not already seen
                         finalCurrency = 'USD';
                         currencyLabel = 'US Dollar';
                     } else {
-                        // Skip USD 5-20, USD 50-100, and any other USD denominations
+                        // Skip USD 1, USD 5-20 and other denominations
                         continue;
                     }
                 }
