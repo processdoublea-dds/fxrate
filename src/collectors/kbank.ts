@@ -156,7 +156,7 @@ export class KbankCollector implements Collector {
                 // Field names may vary (bank_* prefix, _rate suffix) but order is ALWAYS consistent
                 const metaKeys = new Set([
                     'currency', 'currency_code', 'currency_name', 'currency_pair',
-                    'denomination', 'unit', 'unit_range',
+                    'denomination', 'unit', 'unit_range', 'usd_range', 'usd_category', 'category',
                     'date_time', 'datetime', 'date', 'time', 'round'
                 ]);
                 const rateKeys = Object.keys(item).filter(k =>
@@ -218,7 +218,7 @@ function normalizeCurrencyCode(item: Record<string, any>): string | null {
     const rawCurrency = (item.currency_code || item.currency || '').toString().trim().toUpperCase();
     if (!rawCurrency) return null;
 
-    const denomination = (item.denomination || '').toString().trim();
+    const denomination = (item.denomination || item.usd_range || item.usd_category || item.category || '').toString().trim();
 
     // If denomination exists as a separate field, combine them
     // e.g. currency="USD" + denomination="1" → "USD1"
