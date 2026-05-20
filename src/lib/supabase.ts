@@ -143,7 +143,7 @@ export interface ScrapeLogInsert {
     started_at?: string;
     completed_at?: string;
     records_count?: number;
-    error_message?: string;
+    error_message?: string | null;
     duration_ms?: number;
     raw_response?: any;
 }
