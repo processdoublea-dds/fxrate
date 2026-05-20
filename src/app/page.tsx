@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import PinModal from '@/components/PinModal';
+import EditRateModal from '@/components/EditRateModal';
+import CarryForwardModal from '@/components/CarryForwardModal';
 
 interface RateRow {
   id: number;
@@ -72,6 +74,12 @@ export default function Dashboard() {
   const [filterSource, setFilterSource] = useState<string>('ALL');
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+
+  // Edit rate modal state
+  const [editRow, setEditRow] = useState<RateRow | null>(null);
+
+  // Carry forward modal state
+  const [carryForwardOpen, setCarryForwardOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -302,6 +310,14 @@ export default function Dashboard() {
               <option value="KBANK">KBANK</option>
               <option value="BOT">BOT</option>
             </select>
+            {/* Carry Forward button */}
+            <button
+              className="json-api-btn carry-forward-btn"
+              onClick={() => setCarryForwardOpen(true)}
+              title="Carry forward rates from previous date (use when API fails)"
+            >
+              📋 Carry Forward
+            </button>
             <button
               className="json-api-btn"
               onClick={() => window.open(`/api/export?date=${date}`, '_blank')}
@@ -362,6 +378,7 @@ export default function Dashboard() {
             <div className="table-info">
               <span>{tableRows.length} records</span>
               {botDate && <span className="bot-date-note">BOT data date: {botDate}</span>}
+              <span className="table-info-hint">Click ✏️ to edit a rate</span>
             </div>
             <table className="rate-table raw-table">
               <thead>
@@ -369,6 +386,7 @@ export default function Dashboard() {
                   <th className="th-row">#</th>
                   <th className="th-bank">Bank</th>
                   <th className="th-ccy">Currency</th>
+                  <th className="th-edit"></th>
                   <th className="th-rate">Sell TT</th>
                   <th className="th-rate">Sell Notes</th>
                   <th className="th-rate">Buy TT</th>
@@ -393,6 +411,15 @@ export default function Dashboard() {
                       </td>
                       <td className="td-ccy">
                         <span className="currency-code">{row.currency}</span>
+                      </td>
+                      <td className="td-edit">
+                        <button
+                          className="edit-row-btn"
+                          onClick={() => setEditRow(row.rawRow)}
+                          title={`Edit ${row.currency} (${row.displaySource})`}
+                        >
+                          ✏️
+                        </button>
                       </td>
                       <td className="td-rate">{fmtRate(row.sell_tt)}</td>
                       <td className="td-rate">{fmtRate(row.sell_notes)}</td>
@@ -422,6 +449,30 @@ export default function Dashboard() {
           if (action) action();
         }}
         onCancel={() => setPendingAction(null)}
+      />
+
+      {/* Edit Rate Modal */}
+      <EditRateModal
+        isOpen={editRow !== null}
+        row={editRow}
+        onSuccess={async () => {
+          setEditRow(null);
+          addToast(`✓ Rate updated successfully`, 'success');
+          await fetchData();
+        }}
+        onCancel={() => setEditRow(null)}
+      />
+
+      {/* Carry Forward Modal */}
+      <CarryForwardModal
+        isOpen={carryForwardOpen}
+        targetDate={date}
+        onSuccess={async (count) => {
+          setCarryForwardOpen(false);
+          addToast(`✓ Carried forward ${count} rates to ${date}`, 'success');
+          await fetchData();
+        }}
+        onCancel={() => setCarryForwardOpen(false)}
       />
 
       {/* Toast Notifications */}
@@ -473,7 +524,6 @@ function fmtTimestamp(ts: string | null): string {
   if (!ts) return '';
   try {
     const d = new Date(ts);
-    // Format: YYYY/MM/DD HH:mm:ss
     return d.toLocaleString('en-GB', {
       timeZone: 'Asia/Bangkok',
       year: 'numeric',
@@ -502,6 +552,7 @@ interface DisplayRow {
   buy_notes: number | null;
   bank_timestamp: string | null;
   fetched_at: string | null;
+  rawRow: RateRow; // keep original for edit modal
 }
 
 function buildRawTableData(rates: RateRow[], search: string, filterSource: string): DisplayRow[] {
@@ -518,6 +569,7 @@ function buildRawTableData(rates: RateRow[], search: string, filterSource: strin
     buy_notes: r.buy_notes,
     bank_timestamp: r.bank_timestamp,
     fetched_at: r.fetched_at,
+    rawRow: r,
   }));
 
   // Filter by source
@@ -540,11 +592,9 @@ function buildRawTableData(rates: RateRow[], search: string, filterSource: strin
     const aOrder = SOURCE_ORDER.indexOf(a.displaySource);
     const bOrder = SOURCE_ORDER.indexOf(b.displaySource);
     if (aOrder !== bOrder) return aOrder - bOrder;
-    // Per-source currency order from reference system
     const ccyOrder = CURRENCY_ORDER[a.displaySource] || [];
     const aCcy = ccyOrder.indexOf(a.currency);
     const bCcy = ccyOrder.indexOf(b.currency);
-    // Known currencies sort by reference order, unknown go to end alphabetically
     if (aCcy !== -1 && bCcy !== -1) return aCcy - bCcy;
     if (aCcy !== -1) return -1;
     if (bCcy !== -1) return 1;

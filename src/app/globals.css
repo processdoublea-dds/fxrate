@@ -438,7 +438,7 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 16px;
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 .table-info {
@@ -876,6 +876,311 @@ body {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-primary);
   border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* --- Edit Row Button --- */
+.th-edit {
+  width: 36px;
+  min-width: 36px;
+}
+
+.td-edit {
+  text-align: center;
+  padding: 4px 6px;
+}
+
+.edit-row-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  opacity: 0.35;
+  transition: opacity 0.15s, background 0.15s;
+  line-height: 1;
+}
+
+.edit-row-btn:hover {
+  opacity: 1;
+  background: rgba(99, 102, 241, 0.15);
+}
+
+/* --- Carry Forward Toolbar Button --- */
+.carry-forward-btn {
+  background: linear-gradient(135deg, #92400e, #d97706) !important;
+}
+
+.carry-forward-btn:hover {
+  box-shadow: 0 4px 16px rgba(217, 119, 6, 0.4) !important;
+}
+
+/* --- Table Info Hint --- */
+.table-info-hint {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-style: italic;
+}
+
+/* --- Edit / Carry Forward Modal --- */
+.edit-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 0.2s ease;
+}
+
+.edit-modal {
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.97), rgba(15, 23, 42, 0.99));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 28px 32px 24px;
+  width: 100%;
+  max-width: 560px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+  animation: modalSlideUp 0.3s ease;
+}
+
+.edit-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 22px;
+}
+
+.edit-modal-title {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.edit-icon {
+  font-size: 24px;
+  margin-top: 2px;
+}
+
+.edit-title-main {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.edit-title-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.edit-close-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.edit-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.edit-fields-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.edit-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.edit-field-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.edit-field-input {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  padding: 8px 10px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+}
+
+.edit-field-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.edit-field-input:disabled {
+  opacity: 0.5;
+}
+
+/* Remove number input arrows */
+.edit-field-input[type="number"]::-webkit-inner-spin-button,
+.edit-field-input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+}
+
+.edit-pin-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 10px;
+  margin-top: 4px;
+}
+
+.edit-pin-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-light);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.edit-pin-input {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 18px;
+  letter-spacing: 6px;
+  text-indent: 6px;
+  width: 140px;
+  outline: none;
+  text-align: center;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.edit-pin-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.edit-pin-input:disabled {
+  opacity: 0.5;
+}
+
+.edit-error {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--red-bg);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.edit-cancel-btn {
+  flex: 1;
+  padding: 11px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.edit-cancel-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.edit-save-btn {
+  flex: 2;
+  padding: 11px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.edit-save-btn:hover:not(:disabled) {
+  opacity: 0.9;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.4);
+}
+
+.edit-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Carry Forward specific */
+.carry-info-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--amber);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+
+.carry-arrow-label {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  text-align: center;
 }
 
 /* --- Responsive --- */
