@@ -239,10 +239,17 @@ function parseKbankDateTime(dateTimeStr: string): string | undefined {
     if (!dateTimeStr) return undefined;
     const trimmed = dateTimeStr.trim();
 
-    // Format 1: "2026-03-31 08:13:30"
+    // Format 1: "2026-08-13T08:30:05", "2026-08-13 08:30:05", or "2026-08-13"
     if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
-        const isoString = trimmed.includes(' ') ? trimmed.replace(' ', 'T') : `${trimmed}T00:00:00`;
-        const parsed = new Date(`${isoString}+07:00`);
+        let isoString = trimmed;
+        if (trimmed.includes(' ')) {
+            isoString = trimmed.replace(' ', 'T');
+        }
+        if (!isoString.includes('T')) {
+            isoString = `${isoString}T00:00:00`;
+        }
+        const targetString = isoString.endsWith('Z') || isoString.includes('+') ? isoString : `${isoString}+07:00`;
+        const parsed = new Date(targetString);
         if (!isNaN(parsed.getTime())) return parsed.toISOString();
     }
 
