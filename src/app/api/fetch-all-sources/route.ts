@@ -253,7 +253,7 @@ async function fetchWithRetry(
 
             if (result.rates.length > 0) {
                 if (enableDedup) {
-                    const EXPECTED_COUNTS: Record<string, number> = { BOT: 23, BLOOMBERG: 2 };
+                    const EXPECTED_COUNTS: Record<string, number> = { BOT: 48, BLOOMBERG: 2 };
                     const expected = EXPECTED_COUNTS[collector.name];
                     const alreadyFetched = await hasRateForToday(collector.name, rateDate, dedupCurrency, expected);
                     if (alreadyFetched) {

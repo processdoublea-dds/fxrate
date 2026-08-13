@@ -48,6 +48,15 @@ export const CURRENCY_CONFIG: Record<string, CurrencyFilter | BloombergConfig> =
     },
 } as const;
 
+export const SOURCE_EXPECTED_COUNTS: Record<string, number> = {
+    SCB: 27,
+    KTB: 22,
+    KBANK: 26,
+    BOT: 48,
+    BLOOMBERG: 2,
+    'BOT / Bloomberg': 50,
+};
+
 /**
  * Filter currencies based on source config
  */

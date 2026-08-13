@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import PinModal from '@/components/PinModal';
 import EditRateModal from '@/components/EditRateModal';
 import CarryForwardModal from '@/components/CarryForwardModal';
+import { SOURCE_EXPECTED_COUNTS } from '@/lib/currency-config';
 
 interface RateRow {
   id: number;
@@ -226,6 +227,10 @@ export default function Dashboard() {
             const isFetching = fetchingSource === source || (source === 'BOT' && fetchingSource === 'BLOOMBERG');
             const isFetchingR1 = source === 'KBANK' && fetchingSource === 'KBANK_R1';
 
+            const maxExpected = source === 'BOT'
+              ? SOURCE_EXPECTED_COUNTS['BOT / Bloomberg']
+              : (SOURCE_EXPECTED_COUNTS[source] || 0);
+
             const cardLabel = source === 'BOT'
               ? `BOT / Bloomberg`
               : source;
@@ -242,7 +247,9 @@ export default function Dashboard() {
                     {status === 'success' ? '✓ Success' : status === 'partial' ? '⚠ Partial' : status === 'failed' ? '✕ Failed' : status === 'running' ? '⟳ Running' : '— None'}
                   </span>
                 </div>
-                <div className="rate-count">{count}</div>
+                <div className="rate-count">
+                  {count}<span className="rate-max">/{maxExpected}</span>
+                </div>
                 <div className="rate-label">currencies fetched</div>
                 <div className="fetch-time">
                   {dateLabel && <div style={{ color: 'var(--accent-light)', marginBottom: 2 }}>{dateLabel}</div>}

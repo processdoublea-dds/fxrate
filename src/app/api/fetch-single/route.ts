@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
             SCB: 27,
             KTB: 22,
             KBANK: 26,
-            BOT: 23,
+            BOT: 48,
             BLOOMBERG: 2,
         };
 

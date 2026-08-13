@@ -214,6 +214,13 @@ body {
   line-height: 1;
 }
 
+.source-card .rate-max {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-left: 2px;
+}
+
 .source-card .rate-label {
   font-size: 12px;
   color: var(--text-dim);
