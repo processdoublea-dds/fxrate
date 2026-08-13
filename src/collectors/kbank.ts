@@ -153,7 +153,7 @@ export class KbankCollector implements Collector {
             let currencyLabel = currencyCode;
 
             if (currencyCode.startsWith('USD')) {
-                if (currencyCode === 'USD50-100' || currencyCode === 'USD 50-100') {
+                if (currencyCode.includes('50-100')) {
                     finalCurrency = 'USD';
                     currencyLabel = 'US Dollar (50-100)';
                 } else if (currencyCode === 'USD' && !seen.has('USD')) {
@@ -231,7 +231,12 @@ function normalizeCurrencyCode(item: Record<string, any>): string | null {
     const rawCurrency = (item.currency_code || item.currency || '').toString().trim().toUpperCase();
     if (!rawCurrency) return null;
     const denomination = (item.denomination || item.usd_range || item.usd_category || item.category || '').toString().trim();
-    if (denomination) return `${rawCurrency}${denomination}`;
+    if (denomination) {
+        if (denomination.toUpperCase().startsWith(rawCurrency)) {
+            return denomination.replace(/\s+/g, '');
+        }
+        return `${rawCurrency}${denomination}`.replace(/\s+/g, '');
+    }
     return rawCurrency.replace(/\s+/g, '');
 }
 
