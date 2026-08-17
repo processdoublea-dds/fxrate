@@ -67,12 +67,12 @@ export async function GET(request: NextRequest) {
         );
     }
 
-    // Fetch BOT + Bloomberg rates within 7-day lookback window
+    // Fetch BOT + Bloomberg rates within 7-day lookback window (always before selected date)
     const { data: botRates, error: botError } = await supabaseAdmin
         .from('exchange_rates')
         .select('source, currency, currency_label, rate_date, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, bank_timestamp')
         .gte('rate_date', lookbackDate)
-        .lte('rate_date', date)
+        .lt('rate_date', date)
         .in('source', ['BOT', 'BLOOMBERG'])
         .order('source')
         .order('currency');

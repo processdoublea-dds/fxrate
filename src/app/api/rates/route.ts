@@ -43,12 +43,12 @@ export async function GET(request: NextRequest) {
     // (e.g. on holidays). Look back up to 7 calendar days to find the latest BOT rate.
     const lookbackDate = getLookbackDate(date, 7);
 
-    // Fetch BOT + Bloomberg rates within the lookback window
+    // Fetch BOT + Bloomberg rates within the lookback window (always before the selected date)
     const { data: botRates, error: botError } = await supabaseAdmin
         .from('exchange_rates')
         .select('id, run_id, rate_date, source, currency, currency_label, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, mid_rate, bank_timestamp, fetched_at')
         .gte('rate_date', lookbackDate)
-        .lte('rate_date', date)
+        .lt('rate_date', date)
         .in('source', ['BOT', 'BLOOMBERG'])
         .order('source')
         .order('currency');
