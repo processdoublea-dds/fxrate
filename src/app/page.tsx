@@ -334,6 +334,14 @@ export default function Dashboard() {
             </button>
             <button
               className="json-api-btn"
+              onClick={() => window.open(`https://realestate.mygreentownhousing.com/erp-aa/currency/fx/index.aspx?date=${date}`, '_blank')}
+              title="Inspect Mango DB (Raw rates, AVG 3Thai, and AVG BOT views)"
+              style={{ background: 'linear-gradient(135deg, #0284c7, #38bdf8)', color: '#ffffff', fontWeight: 600 }}
+            >
+              🔍 Inspect Mango DB
+            </button>
+            <button
+              className="json-api-btn"
               onClick={() => setPendingAction({
                 label: `Raw Rates > Mango (${date})`,
                 action: () => window.open(`https://realestate.mygreentownhousing.com/erp-aa/currency/currency.aspx?date=${date}`, '_blank'),

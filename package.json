@@ -6,11 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "deploy:mango": "node scripts/deploy-mango.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.97.0",
     "axios": "^1.13.5",
+    "basic-ftp": "^6.2.1",
     "cheerio": "^1.2.0",
     "next": "16.1.6",
     "react": "19.2.3",
