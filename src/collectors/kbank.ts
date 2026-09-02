@@ -180,28 +180,8 @@ export class KbankCollector implements Collector {
                 if (!bankTimestamp) console.warn(`KBANK: Could not parse datetime: ${dateTimeStr}`);
             }
 
-            // Rate field positional mapping (always 5 fields: buy_sight, buy_tt, buy_notes, sell_tt, sell_notes)
-            const metaKeys = new Set([
-                'currency', 'currency_code', 'currency_name', 'currency_pair',
-                'denomination', 'unit', 'unit_range', 'usd_range', 'usd_category', 'category',
-                'date_time', 'datetime', 'date', 'time', 'round',
-            ]);
-            const rateKeys = Object.keys(item).filter(k =>
-                !metaKeys.has(k.toLowerCase()) &&
-                item[k] !== null &&
-                String(item[k]).trim() !== ''
-            );
-
-            let buySight, buyTt, buyNotes, sellTt, sellNotes;
-            if (rateKeys.length >= 5) {
-                buySight  = item[rateKeys[0]];
-                buyTt     = item[rateKeys[1]];
-                buyNotes  = item[rateKeys[2]];
-                sellTt    = item[rateKeys[3]];
-                sellNotes = item[rateKeys[4]];
-            } else {
-                console.warn(`KBANK: Expected 5 rate fields, got ${rateKeys.length} for ${finalCurrency}`);
-            }
+            // Extract rate fields using robust semantic key matching
+            const { buySight, buyTt, buyNotes, sellTt, sellNotes } = extractKbankRateFields(item);
 
             rates.push({
                 run_id:         runId,
@@ -209,12 +189,12 @@ export class KbankCollector implements Collector {
                 source:         this.name,
                 currency:       finalCurrency,
                 currency_label: currencyLabel,
-                sell_tt:        normalizeNumber(sellTt),
-                sell_notes:     normalizeNumber(sellNotes),
-                buy_tt:         normalizeNumber(buyTt),
-                buy_sight:      normalizeNumber(buySight),
+                sell_tt:        sellTt,
+                sell_notes:     sellNotes,
+                buy_tt:         buyTt,
+                buy_sight:      buySight,
                 buy_transfer:   0,
-                buy_notes:      normalizeNumber(buyNotes),
+                buy_notes:      buyNotes,
                 bank_timestamp: bankTimestamp,
                 raw_data:       item,
             });
@@ -276,6 +256,96 @@ function parseKbankDateTime(dateTimeStr: string): string | undefined {
         }
     }
     return undefined;
+}
+
+function extractKbankRateFields(item: Record<string, any>): {
+    buySight: number;
+    buyTt: number;
+    buyNotes: number;
+    sellTt: number;
+    sellNotes: number;
+} {
+    const keys = Object.keys(item);
+
+    const findVal = (predicate: (k: string) => boolean): number | undefined => {
+        for (const k of keys) {
+            const lk = k.toLowerCase();
+            if (predicate(lk)) {
+                const v = item[k];
+                if (v !== null && v !== undefined && v !== '' && v !== '-') {
+                    const n = Number(v);
+                    if (!isNaN(n)) return n;
+                }
+                return 0;
+            }
+        }
+        return undefined;
+    };
+
+    // 1. buy_sight (Export Sight Bill Buying)
+    let buySight = findVal(k =>
+        (k.includes('sight') || k.includes('export')) &&
+        (k.includes('buy') || (!k.includes('sell') && !k.includes('order')))
+    );
+
+    // 2. buy_tt (Telex Transfer Buying)
+    let buyTt = findVal(k =>
+        (k.includes('telex') || (k.includes('tt') && !k.includes('draft') && !k.includes('cheque'))) &&
+        (k.includes('buy') || (!k.includes('sell') && !k.includes('order')))
+    );
+
+    // 3. buy_notes (Bank Notes Buying)
+    let buyNotes = findVal(k =>
+        k.includes('note') &&
+        (k.includes('buy') || (!k.includes('sell') && !k.includes('order')))
+    );
+
+    // 4. sell_tt (TT & Draft T/Cheques Selling)
+    let sellTt = findVal(k =>
+        (k.includes('draft') || k.includes('cheque') || (k.includes('tt') && !k.includes('note'))) &&
+        (k.includes('sell') || (!k.includes('buy') && !k.includes('order')))
+    );
+
+    // 5. sell_notes (Bank Notes Selling)
+    let sellNotes = findVal(k =>
+        k.includes('note') &&
+        (k.includes('sell') || (!k.includes('buy') && !k.includes('order')))
+    );
+
+    // Fallback if semantic match didn't find all 5 fields
+    if (buySight === undefined || buyTt === undefined || buyNotes === undefined || sellTt === undefined || sellNotes === undefined) {
+        const metaKeys = new Set([
+            'currency', 'currency_code', 'currency_name', 'currency_pair',
+            'denomination', 'unit', 'unit_range', 'usd_range', 'usd_category', 'category',
+            'date_time', 'datetime', 'date', 'time', 'round',
+            'order', 'index', 'no', 'row', 'id', 'rank', 'seq', 'usd_to_zar_order',
+        ]);
+        const rateKeys = keys.filter(k => {
+            const lk = k.toLowerCase();
+            return !metaKeys.has(lk) &&
+                !lk.endsWith('_order') &&
+                !lk.endsWith('_id') &&
+                !lk.endsWith('_index') &&
+                item[k] !== null &&
+                String(item[k]).trim() !== '';
+        });
+
+        if (rateKeys.length >= 5) {
+            buySight  = buySight  ?? normalizeNumber(item[rateKeys[0]]);
+            buyTt     = buyTt     ?? normalizeNumber(item[rateKeys[1]]);
+            buyNotes  = buyNotes  ?? normalizeNumber(item[rateKeys[2]]);
+            sellTt    = sellTt    ?? normalizeNumber(item[rateKeys[3]]);
+            sellNotes = sellNotes ?? normalizeNumber(item[rateKeys[4]]);
+        }
+    }
+
+    return {
+        buySight: buySight ?? 0,
+        buyTt: buyTt ?? 0,
+        buyNotes: buyNotes ?? 0,
+        sellTt: sellTt ?? 0,
+        sellNotes: sellNotes ?? 0,
+    };
 }
 
 function normalizeNumber(value: any): number {
