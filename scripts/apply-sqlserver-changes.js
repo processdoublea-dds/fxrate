@@ -120,20 +120,27 @@ WHERE currency IN ('KHR', 'LAK')
   const sqlAlterViewAvg = `
 ALTER VIEW [dbo].[vw_FxRate_AVG]
 AS
--- 1. ชุดวันที่ทั้งหมดที่มีเรทของ 3 ธนาคารไทย (BankDate = วันที่ T)
+-- 1. ชุดวันที่ทั้งหมดที่มีเรทของ 3 ธนาคารไทย (BankDate = วันที่ T) พร้อม updated_date ประจำรอบ
 WITH thai_dates AS (
-    SELECT DISTINCT
+    SELECT
         CAST(
             COALESCE(
                 DATEADD(YEAR, 0, TRY_CONVERT(datetime2, rf.timestamp_bank)),
                 DATEADD(YEAR, 0, TRY_CONVERT(datetime2, rf.updated_date))
             ) AS date
-        ) AS BankDate
+        ) AS BankDate,
+        MAX(rf.updated_date) AS updated_date
     FROM dbo.exrate AS rf
     WHERE rf.bank_name IN ('SCB', 'KTB', 'KBANK')
+    GROUP BY CAST(
+        COALESCE(
+            DATEADD(YEAR, 0, TRY_CONVERT(datetime2, rf.timestamp_bank)),
+            DATEADD(YEAR, 0, TRY_CONVERT(datetime2, rf.updated_date))
+        ) AS date
+    )
 ),
 
--- 2. ข้อมูลกลุ่มที่ 1: เฉลี่ย 3 ธนาคารไทย (27 สกุลเงินหลักเดิม)
+-- 2. ข้อมูลกลุ่มที่ 1: เฉลี่ย 3 ธนาคารไทย (เฉพาะ 27 สกุลเงินหลัก cm.currency_type = 'AVG')
 thai_base AS (
     SELECT
         rf.currency,
@@ -173,7 +180,7 @@ bot_shifted AS (
         td.BankDate,
         cm.currency_name AS currency,
         b.timestamp_bank,
-        b.updated_date,
+        td.updated_date,     -- 👈 ให้ updated_date ตรงกับรอบวันของ Thai Banks เสมอ
         b.buy_transfer   AS avg_buy,
         b.sell_notes     AS avg_sell
     FROM thai_dates td
@@ -187,13 +194,13 @@ bot_shifted AS (
         FROM dbo.exrate rf
         WHERE rf.bank_name IN ('BOT', 'BLOOMBERG')
           AND rf.currency = cm.currency_name
-          -- ดึงเรท BOT ที่ประกาศล่าสุด ณ วันหรือก่อนหน้าวันของ Thai Bank
+          -- เรท BOT ที่ประกาศก่อนวันของ Thai Bank (T-1)
           AND CAST(
                 COALESCE(
                     DATEADD(YEAR, 0, TRY_CONVERT(datetime2, rf.timestamp_bank)),
                     DATEADD(YEAR, 0, TRY_CONVERT(datetime2, rf.updated_date))
                 ) AS date
-              ) <= td.BankDate
+              ) < td.BankDate
         ORDER BY CAST(
             COALESCE(
                 DATEADD(YEAR, 0, TRY_CONVERT(datetime2, rf.timestamp_bank)),
