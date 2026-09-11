@@ -151,7 +151,9 @@ thai_base AS (
         NULLIF(rf.sell_tt,      0) AS sell_tt,
         NULLIF(rf.sell_notes,   0) AS sell_notes
     FROM dbo.exrate AS rf
+    INNER JOIN dbo.currency_master cm ON rf.currency = cm.currency_name
     WHERE rf.bank_name IN ('SCB', 'KTB', 'KBANK')
+      AND cm.currency_type = 'AVG'
 ),
 thai_agg AS (
     SELECT
