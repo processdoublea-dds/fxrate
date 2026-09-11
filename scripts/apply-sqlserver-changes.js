@@ -168,23 +168,24 @@ thai_agg AS (
         BankDate,
         MAX(timestamp_bank) AS timestamp_bank,
         MAX(updated_date)   AS updated_date,
-        -- BUY: 18 สกุลเงินหลักใช้ buy_tt (หรือ buy_notes), สกุลเงินอื่นๆ (BHD, ZAR, OMR, BND, etc.) ใช้ buy_notes (หรือ buy_tt)
+        -- BUY Average rules (สูตรดั้งเดิมแท้ๆ 100% ห้ามเปลี่ยน)
         CASE
             WHEN currency IN (
                 'USD','HKD','CNY','EUR','AUD','SGD','NZD','GBP','JPY','CHF',
                 'SEK','CAD','DKK','NOK','AED','INR','MYR','IDR'
             )
-            THEN COALESCE(AVG(buy_tt), AVG(buy_notes), AVG(buy_transfer))
-            ELSE COALESCE(AVG(buy_notes), AVG(buy_tt), AVG(buy_transfer))
+            THEN AVG(buy_tt)
+            ELSE AVG(buy_notes)
         END AS avg_buy,
-        -- SELL: 18 สกุลเงินหลักใช้ sell_tt (หรือ sell_notes), สกุลเงินอื่นๆ ใช้ sell_notes (หรือ sell_tt)
+
+        -- SELL Average rules (สูตรดั้งเดิมแท้ๆ 100% ห้ามเปลี่ยน)
         CASE
             WHEN currency IN (
                 'USD','HKD','CNY','EUR','AUD','SGD','NZD','GBP','JPY','CHF',
                 'SEK','CAD','DKK','NOK','AED','INR','MYR','IDR'
             )
-            THEN COALESCE(AVG(sell_tt), AVG(sell_notes))
-            ELSE COALESCE(AVG(sell_notes), AVG(sell_tt))
+            THEN AVG(sell_tt)
+            ELSE AVG(sell_notes)
         END AS avg_sell
     FROM thai_base
     GROUP BY currency, BankDate
