@@ -86,6 +86,15 @@ async function main() {
         const currency = item.currency_id?.toUpperCase();
         if (!currency || currency === 'THB') continue;
 
+        const isPerHundred = currency === 'KHR' || currency === 'LAK';
+        const adjust = (val) => {
+          if (val === undefined || val === null) return val;
+          if (isPerHundred) {
+            return Math.round((val / 100) * 100000000) / 100000000;
+          }
+          return val;
+        };
+
         const sellRate = parseNumber(item.selling);
         const buySight = parseNumber(item.buying_sight);
         const buyTransfer = parseNumber(item.buying_transfer);
@@ -96,13 +105,13 @@ async function main() {
           source: 'BOT',
           currency,
           currency_label: item.currency_name_th || item.currency_name_eng || currency,
-          sell_tt: sellRate,
-          sell_notes: sellRate,
-          buy_tt: currency === 'USD' ? buySight : (buyTransfer ?? buySight),
-          buy_sight: currency === 'USD' ? buySight : (buySight ?? buyTransfer),
-          buy_transfer: currency === 'USD' ? buyTransfer : (buyTransfer ?? buySight),
-          buy_notes: currency === 'USD' ? buyTransfer : (buyTransfer ?? buySight),
-          mid_rate: parseNumber(item.mid_rate),
+          sell_tt: adjust(sellRate),
+          sell_notes: adjust(sellRate),
+          buy_tt: adjust(currency === 'USD' ? buySight : (buyTransfer ?? buySight)),
+          buy_sight: adjust(currency === 'USD' ? buySight : (buySight ?? buyTransfer)),
+          buy_transfer: adjust(currency === 'USD' ? buyTransfer : (buyTransfer ?? buySight)),
+          buy_notes: adjust(currency === 'USD' ? buyTransfer : (buyTransfer ?? buySight)),
+          mid_rate: adjust(parseNumber(item.mid_rate)),
           bank_timestamp: `${dateStr}T00:00:00.000Z`,
           fetched_at: nowStr,
           raw_data: {

@@ -40,32 +40,46 @@ export class BotCollector implements Collector {
             // Apply whitelist filter
             if (!shouldIncludeCurrency(this.name, currency)) continue;
 
+            // BOT quotes KHR and LAK per 100 units (e.g. 100 Riel, 100 Kip).
+            // Divide by 100 to get rate per 1 unit.
+            const isPerHundred = currency === 'KHR' || currency === 'LAK';
+            const adjust = (val: number | undefined): number | undefined => {
+                if (val === undefined) return undefined;
+                if (isPerHundred) {
+                    return Math.round((val / 100) * 100000000) / 100000000;
+                }
+                return val;
+            };
+
+            const sellRate = this.parseNumber(item.sellTt) ?? this.parseNumber(item.sellNotes);
+            const sellNotes = this.parseNumber(item.sellNotes) ?? this.parseNumber(item.sellTt);
+            const buyTt = currency === 'USD'
+                ? (this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTt))
+                : (this.parseNumber(item.buyTt) ?? this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTransfer));
+            const buySight = currency === 'USD'
+                ? (this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTt))
+                : (this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTt) ?? this.parseNumber(item.buyTransfer));
+            const buyTransfer = currency === 'USD'
+                ? (this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buySight))
+                : (this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyTt) ?? this.parseNumber(item.buySight));
+            const buyNotes = currency === 'USD'
+                ? (this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyNotes))
+                : (this.parseNumber(item.buyNotes) ?? this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyTt));
+            const midRate = this.parseNumber(item.midRate);
+
             rates.push({
                 run_id: runId,
                 rate_date: rateDate,
                 source: this.name,
                 currency,
                 currency_label: item.currencyLabel || currency,
-                // Use whichever sell rate we find for ALL sell fields
-                sell_tt: this.parseNumber(item.sellTt) ?? this.parseNumber(item.sellNotes),
-                sell_notes: this.parseNumber(item.sellNotes) ?? this.parseNumber(item.sellTt),
-                // BOT USD special mapping:
-                //   buy_tt + buy_sight → Sight Bill rate (buying_sight)
-                //   buy_transfer + buy_notes → Transfer rate (buying_transfer)
-                // Other currencies: use default fallback
-                buy_tt: currency === 'USD'
-                    ? (this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTt))
-                    : (this.parseNumber(item.buyTt) ?? this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTransfer)),
-                buy_sight: currency === 'USD'
-                    ? (this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTt))
-                    : (this.parseNumber(item.buySight) ?? this.parseNumber(item.buyTt) ?? this.parseNumber(item.buyTransfer)),
-                buy_transfer: currency === 'USD'
-                    ? (this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buySight))
-                    : (this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyTt) ?? this.parseNumber(item.buySight)),
-                buy_notes: currency === 'USD'
-                    ? (this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyNotes))
-                    : (this.parseNumber(item.buyNotes) ?? this.parseNumber(item.buyTransfer) ?? this.parseNumber(item.buyTt)),
-                mid_rate: this.parseNumber(item.midRate),
+                sell_tt: adjust(sellRate),
+                sell_notes: adjust(sellNotes),
+                buy_tt: adjust(buyTt),
+                buy_sight: adjust(buySight),
+                buy_transfer: adjust(buyTransfer),
+                buy_notes: adjust(buyNotes),
+                mid_rate: adjust(midRate),
                 bank_timestamp: item.timestamp || new Date().toISOString(),
                 raw_data: item.raw,
             });
