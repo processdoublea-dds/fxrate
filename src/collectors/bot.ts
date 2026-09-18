@@ -40,9 +40,9 @@ export class BotCollector implements Collector {
             // Apply whitelist filter
             if (!shouldIncludeCurrency(this.name, currency)) continue;
 
-            // BOT quotes KHR and LAK per 100 units (e.g. 100 Riel, 100 Kip).
+            // BOT quotes KHR, LAK, and VND per 100 units (e.g. 100 Riel, 100 Kip, 100 Dong).
             // Divide by 100 to get rate per 1 unit.
-            const isPerHundred = currency === 'KHR' || currency === 'LAK';
+            const isPerHundred = currency === 'KHR' || currency === 'LAK' || currency === 'VND';
             const adjust = (val: number | undefined): number | undefined => {
                 if (val === undefined) return undefined;
                 if (isPerHundred) {

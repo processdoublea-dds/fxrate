@@ -355,7 +355,7 @@ export default function Dashboard() {
               className="json-api-btn"
               onClick={() => setPendingAction({
                 label: `AVG BOT > Netsuite (${date})`,
-                action: () => window.open(`https://realestate.mygreentownhousing.com/erp-aa/currency/bot_exchange_rate.aspx?datadate=${date}`, '_blank'),
+                action: () => window.open(`https://realestate.mygreentownhousing.com/erp-aa/currency/bot_exchange_rate.aspx?effectivedate=${date}`, '_blank'),
               })}
               title="AVG BOT > Netsuite"
               style={{ background: 'linear-gradient(135deg, #7c3aed, #a78bfa)' }}
@@ -366,7 +366,7 @@ export default function Dashboard() {
               className="json-api-btn"
               onClick={() => setPendingAction({
                 label: `AVG 3THAI > Netsuite (${date})`,
-                action: () => window.open(`https://realestate.mygreentownhousing.com/erp-aa/currency/avg_exchange_rate.aspx?datadate=${date}`, '_blank'),
+                action: () => window.open(`https://realestate.mygreentownhousing.com/erp-aa/currency/avg_exchange_rate.aspx?effectivedate=${date}`, '_blank'),
               })}
               title="AVG 3THAI > Netsuite"
               style={{ background: 'linear-gradient(135deg, #059669, #34d399)' }}

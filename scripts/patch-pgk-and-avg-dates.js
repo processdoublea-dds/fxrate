@@ -1,9 +1,11 @@
 /**
- * Apply SQL Server changes for FX Rate views and master table
- * 1. Update dbo.currency_master: is_avg = 'Y' for 22 currencies
- * 2. Alter dbo.vw_FxRate_AVG: combine 3 Thai Banks + 22 BOT currencies shifted to Date T
- * 3. Patch dbo.exrate: divide KHR and LAK by 100 (if > 0.05)
- * 4. Verify results
+ * Patch PGK and separate entry_date (timestamp_bank) vs posting_date (BankDate) in vw_FxRate_AVG
+ * 1. Update dbo.currency_master: is_avg = 'Y', currency_type = 'BOT', currency_order = 50 for PGK
+ * 2. Alter dbo.vw_FxRate_AVG:
+ *    - Add PGK to bot_shifted (total 23 BOT currencies)
+ *    - Keep b.timestamp_bank as timestamp_bank (rate date)
+ *    - Keep td.BankDate as BankDate (posting date)
+ * 3. Verify on 2026-09-14
  */
 
 const fs = require('fs');
@@ -43,9 +45,9 @@ const config = {
   options: {
     encrypt: false,
     database: db,
+    rowCollectionOnRequestCompletion: true,
     trustServerCertificate: true,
-    connectTimeout: 15000,
-    requestTimeout: 30000
+    requestTimeout: 60000
   }
 };
 
@@ -53,7 +55,7 @@ const conn = new Connection(config);
 
 function exec(sql, label) {
   return new Promise((resolve, reject) => {
-    console.log(`⏳ Executing: ${label}...`);
+    console.log(`\n⏳ Executing: ${label}...`);
     const req = new Request(sql, (err, rowCount) => {
       if (err) {
         console.error(`❌ Error in ${label}:`, err.message);
@@ -68,56 +70,37 @@ function exec(sql, label) {
 
 function query(sql) {
   return new Promise((resolve, reject) => {
-    const req = new Request(sql, (err) => {
+    const req = new Request(sql, (err, rowCount, rows) => {
       if (err) return reject(err);
+      const res = rows.map(r => {
+        const obj = {};
+        r.forEach(c => obj[c.metadata.colName] = c.value);
+        return obj;
+      });
+      resolve(res);
     });
-    const rows = [];
-    req.on('row', (cols) => {
-      const row = {};
-      for (const col of cols) {
-        row[col.metadata.colName] = col.value;
-      }
-      rows.push(row);
-    });
-    req.on('requestCompleted', () => resolve(rows));
     conn.execSql(req);
   });
 }
 
-async function main() {
-  console.log('===============================================================');
-  console.log('🚀 Applying SQL Server Updates (process_team @ ' + host + ')');
-  console.log('===============================================================\n');
+conn.on('connect', async (err) => {
+  if (err) {
+    console.error('❌ Connection failed:', err);
+    process.exit(1);
+  }
+  console.log('✅ Connected to SQL Server:', host, 'DB:', db);
 
-  // Step 1: Update dbo.currency_master
-  const sqlUpdateMaster = `
-UPDATE [dbo].[currency_master]
-SET is_avg = 'Y'
-WHERE currency_name IN (
-    'MXN', 'KWD', 'MMK', 'BDT', 'CZK', 'KHR', 'KES', 'LAK', 'RUB',
-    'EGP', 'PLN', 'LKR', 'IQD', 'JOD', 'QAR', 'MVR', 'NPR', 'ILS',
-    'HUF', 'PKR', 'BTN', 'MNT'
-);
+  try {
+    // Step 1: Update currency_master for PGK
+    const sqlMaster = `
+UPDATE dbo.currency_master
+SET is_avg = 'Y', currency_type = 'BOT', currency_order = 50
+WHERE currency_name = 'PGK';
 `;
-  await exec(sqlUpdateMaster, 'Step 1: Update currency_master (set is_avg = Y)');
+    await exec(sqlMaster, 'Step 1: Update dbo.currency_master for PGK');
 
-  // Step 2: Patch KHR and LAK in dbo.exrate (divide by 100 if > 0.05)
-  const sqlPatchKhrLak = `
-UPDATE [dbo].[exrate]
-SET 
-    sell_tt = ROUND(sell_tt / 100.0, 5),
-    sell_notes = ROUND(sell_notes / 100.0, 5),
-    buy_tt = ROUND(buy_tt / 100.0, 5),
-    buy_sight = ROUND(buy_sight / 100.0, 5),
-    buy_transfer = ROUND(buy_transfer / 100.0, 5),
-    buy_notes = ROUND(buy_notes / 100.0, 5)
-WHERE currency IN ('KHR', 'LAK')
-  AND (sell_tt > 0.05 OR buy_transfer > 0.05 OR sell_notes > 0.05);
-`;
-  await exec(sqlPatchKhrLak, 'Step 2: Patch KHR & LAK in dbo.exrate (/100)');
-
-  // Step 3: Alter View dbo.vw_FxRate_AVG
-  const sqlAlterViewAvg = `
+    // Step 2: Alter View dbo.vw_FxRate_AVG
+    const sqlAlterView = `
 ALTER VIEW [dbo].[vw_FxRate_AVG]
 AS
 -- 1. ชุดวันที่ทั้งหมดที่มีเรทของ 3 ธนาคารไทย (BankDate = วันที่ T) พร้อม updated_date และ timestamp_bank ประจำรอบ
@@ -169,6 +152,7 @@ thai_agg AS (
         BankDate,
         MAX(timestamp_bank) AS timestamp_bank,
         MAX(updated_date)   AS updated_date,
+
         -- BUY Average rules (สูตรดั้งเดิมแท้ๆ 100% ห้ามเปลี่ยน)
         CASE
             WHEN currency IN (
@@ -188,18 +172,19 @@ thai_agg AS (
             THEN AVG(sell_tt)
             ELSE AVG(sell_notes)
         END AS avg_sell
+
     FROM thai_base
     GROUP BY currency, BankDate
 ),
 
--- 3. ข้อมูลกลุ่มที่ 2: 22 สกุลเงิน BOT/Bloomberg โดย Shift วันที่ให้ตรงกับ BankDate ของ Thai Banks
---    และใช้ timestamp_bank ของรอบ Thai Banks เพื่อให้เป็นวันที่และเวลาเดียวกันทั้ง Set
+-- 3. ข้อมูลกลุ่มที่ 2: 23 สกุลเงิน BOT/Bloomberg โดย Shift วันที่ให้ตรงกับ BankDate ของ Thai Banks
+--    และใช้ b.timestamp_bank วันที่ของเรทจริงจาก BOT (สำหรับ entry_date)
 bot_shifted AS (
     SELECT
         td.BankDate,
         cm.currency_name AS currency,
-        td.timestamp_bank,   -- 👈 ปรับให้เป็น timestamp_bank เดียวกันทั้งชุดของรอบวันนั้น
-        td.updated_date,     -- 👈 ให้ updated_date ตรงกับรอบวันของ Thai Banks เสมอ
+        b.timestamp_bank,    -- 👈 วันที่เรทจริงจาก BOT
+        td.updated_date,     -- 👈 updated_date รอบของ Thai Banks
         b.buy_transfer   AS avg_buy,
         b.sell_notes     AS avg_sell
     FROM thai_dates td
@@ -230,7 +215,7 @@ bot_shifted AS (
     WHERE cm.currency_name IN (
         'MXN', 'KWD', 'MMK', 'BDT', 'CZK', 'KHR', 'KES', 'LAK', 'RUB',
         'EGP', 'PLN', 'LKR', 'IQD', 'JOD', 'QAR', 'MVR', 'NPR', 'ILS',
-        'HUF', 'PKR', 'BTN', 'MNT'
+        'HUF', 'PKR', 'BTN', 'MNT', 'PGK'
     )
 ),
 
@@ -243,7 +228,7 @@ combined AS (
     FROM bot_shifted
 )
 
--- 5. ผลลัพธ์สุดท้าย พร้อมเชื่อม currency_master เรียงลำดับ currency_order (1-49)
+-- 5. ผลลัพธ์สุดท้าย พร้อมเชื่อม currency_master เรียงลำดับ currency_order (1-50)
 SELECT
     c.BankDate,
     c.currency,
@@ -260,50 +245,40 @@ FROM combined c
 INNER JOIN dbo.currency_master b ON c.currency = b.currency_name
 WHERE b.is_avg = 'Y' AND b.active = 'Y';
 `;
-  await exec(sqlAlterViewAvg, 'Step 3: Alter View dbo.vw_FxRate_AVG');
+    await exec(sqlAlterView, 'Step 2: Alter View dbo.vw_FxRate_AVG');
 
-  // Step 4: Verification
-  console.log('\n🔍 --- Verifying Results ---');
-  
-  // 4.1 Count distinct currencies in vw_FxRate_AVG for 2026-09-11
-  const rowsAvg = await query(`
-    SELECT COUNT(*) AS total_currencies, MIN(currency_order) as min_order, MAX(currency_order) as max_order
-    FROM dbo.vw_FxRate_AVG
-    WHERE BankDate = '2026-09-11';
-  `);
-  console.log('📊 vw_FxRate_AVG on 2026-09-11:', rowsAvg[0]);
+    // Step 3: Verification
+    console.log('\n📊 Verifying results for 2026-09-14...');
+    const rows = await query(`
+SELECT 
+    BankDate,
+    currency,
+    FORMAT(timestamp_bank, 'dd/MM/yyyy') AS entry_date,
+    FORMAT(BankDate, 'dd/MM/yyyy') AS posting_date,
+    BUY_Average,
+    SELL_Average,
+    currency_order,
+    currency_id,
+    currency_type
+FROM dbo.vw_FxRate_AVG
+WHERE BankDate = '2026-09-14'
+ORDER BY currency_order;
+`);
 
-  // 4.2 Check KHR and LAK rates in vw_FxRate_AVG
-  const rowsKhrLak = await query(`
-    SELECT currency, BankDate, BUY_Average, SELL_Average, currency_order, currency_type
-    FROM dbo.vw_FxRate_AVG
-    WHERE BankDate = '2026-09-11' AND currency IN ('KHR', 'LAK', 'USD', 'BTN');
-  `);
-  console.log('\n📊 Sample rates in vw_FxRate_AVG (2026-09-11):');
-  console.table(rowsKhrLak);
+    console.log(`✅ Total rows in vw_FxRate_AVG for 2026-09-14: ${rows.length}`);
+    const pgk = rows.find(r => r.currency === 'PGK');
+    console.log('\n🇵🇬 PGK row:', pgk);
+    const mmk = rows.find(r => r.currency === 'MMK');
+    console.log('🇲🇲 MMK row:', mmk);
+    const usd = rows.find(r => r.currency === 'USD');
+    console.log('🇺🇸 USD row:', usd);
 
-  // 4.3 Verify vw_FxRate_BOT still works
-  const rowsBot = await query(`
-    SELECT TOP 3 BankDate, currency, BUY_Average, SELL_Average, currency_type
-    FROM dbo.vw_FxRate_BOT
-    ORDER BY BankDate DESC, currency_order;
-  `);
-  console.log('\n📊 Sample rates in vw_FxRate_BOT (Intact):');
-  console.table(rowsBot);
-
-  console.log('\n🎉 ALL UPDATES APPLIED AND VERIFIED SUCCESSFULLY!');
-  conn.close();
-}
-
-conn.on('connect', (err) => {
-  if (err) {
-    console.error('❌ Connection failed:', err.message);
+    conn.close();
+  } catch (e) {
+    console.error('❌ Script failed:', e);
+    conn.close();
     process.exit(1);
   }
-  main().catch((err) => {
-    console.error('❌ Execution error:', err);
-    conn.close();
-  });
 });
 
 conn.connect();

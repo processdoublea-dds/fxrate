@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     // Fetch Thai bank rates (SCB, KTB, KBANK) for the requested date
     const { data: bankRates, error: bankError } = await supabaseAdmin
         .from('exchange_rates')
-        .select('source, currency, currency_label, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, bank_timestamp')
+        .select('source, currency, currency_label, rate_date, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, bank_timestamp')
         .eq('rate_date', date)
         .in('source', ['SCB', 'KTB', 'KBANK'])
         .order('source')
@@ -67,12 +67,30 @@ export async function GET(request: NextRequest) {
         );
     }
 
-    // Fetch BOT + Bloomberg rates within 7-day lookback window (always before selected date)
+    let effectiveBankRates = bankRates || [];
+
+    // Fallback for weekends & bank holidays: if requested date has no Thai bank rates, look back up to 7 days
+    if (effectiveBankRates.length === 0) {
+        const { data: fallbackBankRates, error: fallbackError } = await supabaseAdmin
+            .from('exchange_rates')
+            .select('source, currency, currency_label, rate_date, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, bank_timestamp')
+            .gte('rate_date', lookbackDate)
+            .lte('rate_date', date)
+            .in('source', ['SCB', 'KTB', 'KBANK'])
+            .order('source')
+            .order('currency');
+
+        if (!fallbackError && fallbackBankRates && fallbackBankRates.length > 0) {
+            effectiveBankRates = deduplicateRates(fallbackBankRates);
+        }
+    }
+
+    // Fetch BOT + Bloomberg rates within 7-day lookback window (up to selected date)
     const { data: botRates, error: botError } = await supabaseAdmin
         .from('exchange_rates')
         .select('source, currency, currency_label, rate_date, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, bank_timestamp')
         .gte('rate_date', lookbackDate)
-        .lt('rate_date', date)
+        .lte('rate_date', date)
         .in('source', ['BOT', 'BLOOMBERG'])
         .order('source')
         .order('currency');
@@ -88,7 +106,7 @@ export async function GET(request: NextRequest) {
     const botDeduped = deduplicateRates(botRates || []);
 
     // Combine and format
-    const allRates = [...(bankRates || []), ...botDeduped];
+    const allRates = [...effectiveBankRates, ...botDeduped];
 
     // Sort: SCB → KTB → KBANK → BOT → BLOOMBERG, then by currency
     const sourceOrder: Record<string, number> = { SCB: 1, KTB: 2, KBANK: 3, BOT: 4, BLOOMBERG: 5 };
