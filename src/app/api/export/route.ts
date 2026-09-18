@@ -117,18 +117,32 @@ export async function GET(request: NextRequest) {
     });
 
     // Map to AppScript-compatible format
-    const data = allRates.map((r) => ({
-        bank: r.source === 'BLOOMBERG' ? 'BOT' : r.source,
-        currency: r.currency,
-        sell_tt: r.sell_tt ?? 0,
-        sell_notes: r.sell_notes ?? 0,
-        buy_tt: r.buy_tt ?? 0,
-        buy_sight: r.buy_sight ?? 0,
-        buy_transfer: r.buy_transfer ?? 0,
-        buy_notes: r.buy_notes ?? 0,
-        currency_web: r.currency_label || r.currency,
-        timestamp_bank: formatTimestamp(r.bank_timestamp),
-    }));
+    const data = allRates.map((r) => {
+        let tsStr = formatTimestamp(r.bank_timestamp);
+        // Fallback alignment for 365-day accounting (Weekends & Bank Holidays):
+        // If a rate is served from a previous business date fallback (r.rate_date !== date),
+        // adjust the date component of timestamp_bank to the requested target date, preserving original quote time.
+        // This guarantees Mango's currency.aspx creates a new daily batch for the requested date,
+        // allowing SQL Views (vw_FxRate_AVG / BOT) and IT's NetSuite export scripts to find
+        // 50 and 29 records on weekends and holidays 365 days a year without missing a single day.
+        if (r.rate_date !== date && tsStr) {
+            const timePart = tsStr.includes(' ') ? tsStr.split(' ')[1] : '08:30:00';
+            const [y, m, d] = date.split('-');
+            tsStr = `${y}/${m}/${d} ${timePart}`;
+        }
+        return {
+            bank: r.source === 'BLOOMBERG' ? 'BOT' : r.source,
+            currency: r.currency,
+            sell_tt: r.sell_tt ?? 0,
+            sell_notes: r.sell_notes ?? 0,
+            buy_tt: r.buy_tt ?? 0,
+            buy_sight: r.buy_sight ?? 0,
+            buy_transfer: r.buy_transfer ?? 0,
+            buy_notes: r.buy_notes ?? 0,
+            currency_web: r.currency_label || r.currency,
+            timestamp_bank: tsStr,
+        };
+    });
 
     return NextResponse.json(
         {
