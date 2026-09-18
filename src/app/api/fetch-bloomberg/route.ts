@@ -41,15 +41,14 @@ export async function GET(request: Request) {
     const rateDate = getYesterdayDate();
 
     // ── DEDUP: Check if BTN + MNT already exist ──
-    // Bloomberg saves BTN/MNT with source="BOT". If both exist, skip BrowserAct entirely.
-    // This prevents calling BrowserAct 3 workflows on every GAS round (every 15 min).
+    // Bloomberg saves BTN/MNT with source="BOT". If both exist, skip fetching.
     const [hasBTN, hasMNT] = await Promise.all([
         hasRateForToday('BOT', rateDate, 'BTN'),
         hasRateForToday('BOT', rateDate, 'MNT'),
     ]);
 
     if (hasBTN && hasMNT) {
-        console.log(`[BLOOMBERG] BTN and MNT already exist for ${rateDate}, skipping BrowserAct`);
+        console.log(`[BLOOMBERG] BTN and MNT already exist for ${rateDate}, skipping`);
         summaries.push({
             source: 'BLOOMBERG',
             status: 'skipped',
@@ -64,9 +63,9 @@ export async function GET(request: Request) {
         });
     }
 
-    console.log(`[BLOOMBERG] Missing: ${!hasBTN ? 'BTN ' : ''}${!hasMNT ? 'MNT' : ''} for ${rateDate} — calling BrowserAct`);
+    console.log(`[BLOOMBERG] Missing: ${!hasBTN ? 'BTN ' : ''}${!hasMNT ? 'MNT' : ''} for ${rateDate} — calling BloombergCollector`);
 
-    // Bloomberg — call BrowserAct (3 workflows: USD-THB, USD-BTN, USD-MNT)
+    // Bloomberg — fetch BTN & MNT directly via ExchangeRate API
     const bloombergSummary = await fetchWithRetry(new BloombergCollector(), allRates, rateDate, 2);
     summaries.push(bloombergSummary);
     if (bloombergSummary.status === 'success') newDataFetched = true;
