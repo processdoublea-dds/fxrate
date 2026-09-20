@@ -120,12 +120,11 @@ export async function GET(request: NextRequest) {
     const data = allRates.map((r) => {
         let tsStr = formatTimestamp(r.bank_timestamp);
         // Fallback alignment for 365-day accounting (Weekends & Bank Holidays):
-        // If a rate is served from a previous business date fallback (r.rate_date !== date),
-        // adjust the date component of timestamp_bank to the requested target date, preserving original quote time.
-        // This guarantees Mango's currency.aspx creates a new daily batch for the requested date,
-        // allowing SQL Views (vw_FxRate_AVG / BOT) and IT's NetSuite export scripts to find
-        // 50 and 29 records on weekends and holidays 365 days a year without missing a single day.
-        if (r.rate_date !== date && tsStr) {
+        // Only align commercial banks (SCB, KTB, KBANK) to the target weekend date so they create the new daily batch.
+        // BOT / BLOOMBERG rates preserve their actual announcement date (e.g. Friday 18th for Saturday 19th batch)
+        // so that vw_FxRate_BOT and vw_FxRate_AVG show date = 18th, effective_date = 19th as required by accounting.
+        const isThaiBank = ['SCB', 'KTB', 'KBANK'].includes(r.source);
+        if (isThaiBank && r.rate_date !== date && tsStr) {
             const timePart = tsStr.includes(' ') ? tsStr.split(' ')[1] : '08:30:00';
             const [y, m, d] = date.split('-');
             tsStr = `${y}/${m}/${d} ${timePart}`;
