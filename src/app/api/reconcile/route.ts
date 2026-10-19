@@ -150,8 +150,8 @@ export async function GET(request: NextRequest) {
       currency_order: r[2].value,
       date: r[3].value,
       effective_date: r[4].value,
-      buying_rate: parseFloat(r[5].value),
-      selling_rate: parseFloat(r[6].value)
+      buying_rate: r[5].value != null ? parseFloat(r[5].value) : 0,
+      selling_rate: r[6].value != null ? parseFloat(r[6].value) : 0
     }));
 
     const nsAvgList = await fetchNetSuiteRecords('customscript_avg_exchange_rate', token);
@@ -263,9 +263,9 @@ export async function GET(request: NextRequest) {
       currency_order: r[2].value,
       date: r[3].value,
       effective_date: r[4].value,
-      buyingtransfer: parseFloat(r[5].value),
-      sellingrate: parseFloat(r[6].value),
-      midrate: parseFloat(r[7].value)
+      buyingtransfer: r[5].value != null ? parseFloat(r[5].value) : 0,
+      sellingrate: r[6].value != null ? parseFloat(r[6].value) : 0,
+      midrate: r[7].value != null ? parseFloat(r[7].value) : 0
     }));
 
     const nsBotList = await fetchNetSuiteRecords('customscript_bot_exchange_rate', token);

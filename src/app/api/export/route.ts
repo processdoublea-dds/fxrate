@@ -51,11 +51,14 @@ export async function GET(request: NextRequest) {
     // BOT + Bloomberg: look back up to 7 calendar days to find latest rates
     const lookbackDate = getLookbackDate(date, 7);
 
-    // Fetch Thai bank rates (SCB, KTB, KBANK) for the requested date
-    const { data: bankRates, error: bankError } = await supabaseAdmin
+    // Fetch Thai bank rates (SCB, KTB, KBANK) within 7-day lookback window (up to selected date)
+    // Granular per-bank & per-currency fallback ensures full 75 records (27 SCB + 22 KTB + 26 KBANK)
+    // even during partial holidays (e.g. Bangkok-only holiday) or individual bank scraping delays
+    const { data: rawBankRates, error: bankError } = await supabaseAdmin
         .from('exchange_rates')
         .select('source, currency, currency_label, rate_date, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, bank_timestamp')
-        .eq('rate_date', date)
+        .gte('rate_date', lookbackDate)
+        .lte('rate_date', date)
         .in('source', ['SCB', 'KTB', 'KBANK'])
         .order('source')
         .order('currency');
@@ -67,23 +70,7 @@ export async function GET(request: NextRequest) {
         );
     }
 
-    let effectiveBankRates = bankRates || [];
-
-    // Fallback for weekends & bank holidays: if requested date has no Thai bank rates, look back up to 7 days
-    if (effectiveBankRates.length === 0) {
-        const { data: fallbackBankRates, error: fallbackError } = await supabaseAdmin
-            .from('exchange_rates')
-            .select('source, currency, currency_label, rate_date, sell_tt, sell_notes, buy_tt, buy_sight, buy_transfer, buy_notes, bank_timestamp')
-            .gte('rate_date', lookbackDate)
-            .lte('rate_date', date)
-            .in('source', ['SCB', 'KTB', 'KBANK'])
-            .order('source')
-            .order('currency');
-
-        if (!fallbackError && fallbackBankRates && fallbackBankRates.length > 0) {
-            effectiveBankRates = deduplicateRates(fallbackBankRates);
-        }
-    }
+    const effectiveBankRates = deduplicateRates(rawBankRates || []);
 
     // Fetch BOT + Bloomberg rates within 7-day lookback window (up to selected date)
     const { data: botRates, error: botError } = await supabaseAdmin
@@ -168,14 +155,13 @@ export async function OPTIONS() {
     return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function deduplicateRates(rates: any[]): any[] {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const map = new Map<string, any>();
     for (const r of rates) {
         const key = `${r.source}|${r.currency}`;
         const existing = map.get(key);
-        if (!existing || r.rate_date > existing.rate_date) {
+        if (!existing || r.rate_date > existing.rate_date || (r.rate_date === existing.rate_date && (r.bank_timestamp || '') > (existing.bank_timestamp || ''))) {
             map.set(key, r);
         }
     }
