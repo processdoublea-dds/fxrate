@@ -17,6 +17,8 @@ const collectors: Record<string, { new(): { name: string; fetch: () => Promise<{
 };
 
 export async function POST(request: NextRequest) {
+    let logId: number | null = null;
+    const startTime = Date.now();
     try {
         const body = await request.json();
         const sourceName = (body.source || '').toUpperCase();
@@ -31,10 +33,8 @@ export async function POST(request: NextRequest) {
         }
 
         const runId = generateRunId();
-        const startTime = Date.now();
 
         // Insert scrape log (non-blocking)
-        let logId: number | null = null;
         try {
             const log = await insertScrapeLog({
                 run_id: runId,
@@ -99,6 +99,19 @@ export async function POST(request: NextRequest) {
     } catch (err) {
         const errorMessage = err instanceof Error ? err.message : String(err);
         console.error('Fetch single error:', errorMessage);
+
+        if (logId) {
+            try {
+                await updateScrapeLog(logId, {
+                    status: 'failed',
+                    error_message: errorMessage,
+                    completed_at: new Date().toISOString(),
+                    duration_ms: Date.now() - startTime,
+                });
+            } catch (updateErr) {
+                console.error('Failed to update scrape log on error:', updateErr);
+            }
+        }
 
         return NextResponse.json({
             success: false,
