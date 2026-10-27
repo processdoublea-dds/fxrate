@@ -3,7 +3,9 @@ import { Collector, CollectorResult, getTodayDate, generateRunId } from './base'
 import { shouldIncludeCurrency } from '../lib/currency-config';
 import { ExchangeRateInsert } from '../lib/supabase';
 
-const SCB_URL =
+const SCB_PROXY_URL =
+    'https://realestate.mygreentownhousing.com/erp-aa/currency/fx/scb_proxy.aspx';
+const SCB_DIRECT_URL =
     'https://www.scb.co.th/services/scb/exchangeRateService/latest.json?_charset_=UTF-8&lang=en&page=2ea9c13a-6fb9-4a75-9abd-87ef79ee71cc%2C907ab931-1989-41b4-b599-10bff5593570';
 
 /**
@@ -25,23 +27,42 @@ export class ScbCollector implements Collector {
         const runId = generateRunId();
         const rateDate = getTodayDate();
 
-        const { data } = await axios.get(SCB_URL, {
-            headers: {
-                'User-Agent':
-                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                Accept: 'application/json, text/plain, */*',
-                'Accept-Language': 'en-US,en;q=0.9,th;q=0.8',
-                Referer: 'https://www.scb.co.th/en/personal-banking/foreign-exchange-rates.html',
-                Origin: 'https://www.scb.co.th',
-                'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-                'Sec-Ch-Ua-Mobile': '?0',
-                'Sec-Ch-Ua-Platform': '"macOS"',
-                'Sec-Fetch-Dest': 'empty',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Site': 'same-origin',
-            },
-            timeout: 30000,
-        });
+        let data: any = null;
+        try {
+            console.log('[SCB] Fetching via Mango INET Proxy (Thailand IP)...');
+            const res = await axios.get(SCB_PROXY_URL, {
+                headers: { Accept: 'application/json' },
+                timeout: 20000,
+            });
+            if (res.data && res.data.exchangeRates) {
+                data = res.data;
+            } else {
+                throw new Error('Mango proxy returned empty or invalid data');
+            }
+        } catch (proxyErr) {
+            console.warn(
+                '[SCB] Mango Proxy failed, falling back to direct URL:',
+                proxyErr instanceof Error ? proxyErr.message : proxyErr
+            );
+            const directRes = await axios.get(SCB_DIRECT_URL, {
+                headers: {
+                    'User-Agent':
+                        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    Accept: 'application/json, text/plain, */*',
+                    'Accept-Language': 'en-US,en;q=0.9,th;q=0.8',
+                    Referer: 'https://www.scb.co.th/en/personal-banking/foreign-exchange-rates.html',
+                    Origin: 'https://www.scb.co.th',
+                    'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                    'Sec-Ch-Ua-Mobile': '?0',
+                    'Sec-Ch-Ua-Platform': '"macOS"',
+                    'Sec-Fetch-Dest': 'empty',
+                    'Sec-Fetch-Mode': 'cors',
+                    'Sec-Fetch-Site': 'same-origin',
+                },
+                timeout: 30000,
+            });
+            data = directRes.data;
+        }
 
         const rates: ExchangeRateInsert[] = [];
         const items: ScbRate[] = data.exchangeRates || [];
