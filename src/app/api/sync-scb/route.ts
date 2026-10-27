@@ -35,12 +35,27 @@ function parseTimestamp(date: string, time: string): string {
     }
 }
 
-function processScbItems(items: any[], runId: string, rateDate: string): ExchangeRateInsert[] {
+function processScbItems(items: any[], runId: string, rateDate: string): { rates: ExchangeRateInsert[]; staleCount: number } {
     const rates: ExchangeRateInsert[] = [];
+    let staleCount = 0;
     for (const item of items) {
         const currency = (item.curCode || '').toUpperCase();
         if (!currency || !SCB_CURRENCIES.includes(currency)) continue;
         if (!shouldIncludeCurrency('SCB', currency)) continue;
+
+        // Check date freshness:
+        // Reject rates published before today or before 08:00 Bangkok time
+        if (item.runDate && item.runDate < rateDate) {
+            staleCount++;
+            continue;
+        }
+        if (item.runTime) {
+            const hour = parseInt(item.runTime.split(':')[0], 10);
+            if (hour < 8) {
+                staleCount++;
+                continue;
+            }
+        }
 
         const bankTimestamp = item.runDate && item.runTime
             ? parseTimestamp(item.runDate, item.runTime)
@@ -64,7 +79,7 @@ function processScbItems(items: any[], runId: string, rateDate: string): Exchang
             raw_data: item,
         });
     }
-    return rates;
+    return { rates, staleCount };
 }
 
 // GET: Test reaching Mango Proxy from Vercel & fetch rates
@@ -141,8 +156,27 @@ export async function POST(request: NextRequest) {
             throw new Error('No exchangeRates found in payload or proxy response');
         }
 
-        const rates = processScbItems(items, runId, rateDate);
+        const { rates, staleCount } = processScbItems(items, runId, rateDate);
         if (rates.length === 0) {
+            if (staleCount > 0) {
+                const durationMs = Date.now() - startMs;
+                if (logId) {
+                    await updateScrapeLog(logId, {
+                        status: 'skipped',
+                        completed_at: new Date().toISOString(),
+                        records_count: 0,
+                        duration_ms: durationMs,
+                        error_message: 'SCB rates for today are not published yet (still yesterday date)',
+                    });
+                }
+                return NextResponse.json({
+                    success: true,
+                    status: 'skipped',
+                    message: 'SCB rates for today are not published yet, will retry next round',
+                    staleCount,
+                    durationMs,
+                });
+            }
             throw new Error('0 valid SCB rates after currency filter');
         }
 
