@@ -1,4 +1,4 @@
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
 import { ExchangeRateInsert } from '@/lib/supabase';
 import { generateRunId } from './base';
 

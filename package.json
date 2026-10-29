@@ -16,6 +16,7 @@
     "basic-ftp": "^6.2.1",
     "cheerio": "^1.2.0",
     "next": "16.1.6",
+    "puppeteer-core": "^25.16.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "tedious": "^20.0.0"
