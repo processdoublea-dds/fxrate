@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
 import { shouldIncludeCurrency } from '@/lib/currency-config';
-import { ExchangeRateInsert, insertRates, insertScrapeLog, updateScrapeLog } from '@/lib/supabase';
+import { ExchangeRateInsert, insertRates, insertScrapeLog, updateScrapeLog, hasRateForToday } from '@/lib/supabase';
 import { generateRunId, getTodayDate } from '@/collectors/base';
 
 const SCB_PROXY_URL =
@@ -117,6 +117,19 @@ export async function POST(request: NextRequest) {
     const runId = generateRunId();
     const rateDate = getTodayDate();
     let logId: number | null = null;
+
+    // Check if we already have full SCB rates for today (Round 1 locked)
+    // Avoid overwriting Round 1 with Round 2 or later rounds
+    const alreadyFetched = await hasRateForToday('SCB', rateDate, undefined, 27);
+    if (alreadyFetched) {
+        console.log(`[SCB Sync] Already have full SCB rates (27) for ${rateDate} — locking Round 1, skipping further updates`);
+        return NextResponse.json({
+            success: true,
+            status: 'skipped',
+            message: `Already have complete SCB rates (Round 1 locked) for ${rateDate}`,
+            rateDate,
+        });
+    }
 
     try {
         const log = await insertScrapeLog({
