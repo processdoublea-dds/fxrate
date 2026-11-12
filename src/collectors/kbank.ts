@@ -172,8 +172,10 @@ export class KbankCollector implements Collector {
             if (seen.has(finalCurrency)) continue;
             seen.add(finalCurrency);
 
-            // Parse bank datetime
-            const dateTimeStr = item.datetime || item.date_time || item.date || null;
+            // Parse bank datetime (support both separate date + time, and combined date_time/datetime)
+            const dateTimeStr = (item.date && item.time)
+                ? `${item.date} ${item.time}`
+                : (item.datetime || item.date_time || item.date || null);
             let bankTimestamp: string | undefined;
             if (dateTimeStr) {
                 bankTimestamp = parseKbankDateTime(dateTimeStr);
