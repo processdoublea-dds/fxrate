@@ -77,9 +77,17 @@ async function handleShadowTest(request: Request) {
             const diffs: Record<string, { browserless: any; browseract: any }> = {};
             const fields = ['buy_sight', 'buy_tt', 'sell_tt', 'buy_notes', 'sell_notes'] as const;
 
+            const isZeroOrEmpty = (val: any) => val === null || val === undefined || val === 0 || val === '0' || val === '';
+
             fields.forEach(f => {
                 const v1 = bl[f];
                 const v2 = prod[f];
+
+                // Both null/undefined/0/empty are equivalent (no rate published for notes/sight bill)
+                if (isZeroOrEmpty(v1) && isZeroOrEmpty(v2)) {
+                    return;
+                }
+
                 // Compare with small floating point tolerance
                 if (v1 === null || v1 === undefined || v2 === null || v2 === undefined) {
                     if (v1 !== v2) {
