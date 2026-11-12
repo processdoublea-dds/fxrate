@@ -81,8 +81,8 @@ export async function fetchKbankViaBrowserless(): Promise<KbankBrowserlessResult
             rateDate = `${year}-${month}-${day}`;
         }
 
-        const parseNum = (v: string): number | undefined => {
-            if (!v || v === '-' || isNaN(parseFloat(v))) return undefined;
+        const parseNum = (v: string): number => {
+            if (!v || v === '-' || isNaN(parseFloat(v))) return 0;
             return parseFloat(v.replace(/,/g, ''));
         };
 
@@ -118,14 +118,14 @@ export async function fetchKbankViaBrowserless(): Promise<KbankBrowserlessResult
                 rate_date: rateDate,
                 source: 'KBANK',
                 currency: code,
-                currency_label: code === 'USD' ? 'US Dollar (50-100)' : curCell.replace(/\n/g, ' '),
+                currency_label: code === 'USD' ? 'US Dollar (50-100)' : code,
                 sell_tt: ttSell,
                 sell_notes: notesSell,
                 buy_tt: telexBuy,
                 buy_sight: exportSight,
                 buy_transfer: 0,
                 buy_notes: notesBuy,
-                bank_timestamp: bankTimestamp || undefined,
+                bank_timestamp: bankTimestamp ? new Date(bankTimestamp).toISOString() : undefined,
                 raw_data: {
                     rawCell: curCell,
                     tds,

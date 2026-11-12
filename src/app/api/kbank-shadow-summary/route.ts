@@ -58,18 +58,19 @@ export async function GET(request: Request) {
             const blTs = details?.browserless?.bank_timestamp || null;
             const baTs = details?.browseract?.bank_timestamp || null;
 
-            // Determine if test was run against a different bank round
-            const isDifferentRound = blRound && blRound !== '1';
+            // Morning rounds only: Round 1 (Primary) or Round 2
+            const isMorningRound = blRound === '1' || blRound === '2';
+            const isAfternoonRound = blRound && !isMorningRound;
 
-            let normalizedStatus = 'PASS_100_MATCH';
+            let normalizedStatus = 'PASS_ROUND_1_MATCH';
             if (l.status === 'failed') {
                 normalizedStatus = 'FAILED';
                 failCount++;
-            } else if (isDifferentRound) {
-                normalizedStatus = 'DIFFERENT_BANK_ROUND';
+            } else if (isAfternoonRound) {
+                normalizedStatus = 'AFTERNOON_ROUND_SKIPPED';
                 crossRoundCount++;
             } else if (cleanVariances.length === 0) {
-                normalizedStatus = 'PASS_100_MATCH';
+                normalizedStatus = blRound === '1' ? 'PASS_ROUND_1_MATCH' : 'PASS_ROUND_2_MATCH';
                 passCount++;
             } else if (cleanVariances.length <= 1 && cleanVariances[0]?.currency === 'USD') {
                 normalizedStatus = 'PASS_USD_TIER_DIFF';
@@ -141,12 +142,18 @@ function renderHtml(data: any): string {
         let badgeColor = '#22c55e';
         let badgeText = '✅ 100% Match';
 
-        if (h.normalized_status === 'PASS_USD_TIER_DIFF') {
+        if (h.normalized_status === 'PASS_ROUND_1_MATCH') {
+            badgeColor = '#22c55e';
+            badgeText = '✅ 100% Match (Round 1)';
+        } else if (h.normalized_status === 'PASS_ROUND_2_MATCH') {
+            badgeColor = '#10b981';
+            badgeText = '✅ 100% Match (Round 2)';
+        } else if (h.normalized_status === 'PASS_USD_TIER_DIFF') {
             badgeColor = '#3b82f6';
             badgeText = '🔹 100% TT Match (USD $50-100)';
-        } else if (h.normalized_status === 'DIFFERENT_BANK_ROUND') {
+        } else if (h.normalized_status === 'AFTERNOON_ROUND_SKIPPED') {
             badgeColor = '#f59e0b';
-            badgeText = `⚠️ Diff Round (Rd ${h.round} vs Rd 1)`;
+            badgeText = `⚠️ Afternoon (Round ${h.round} Skipped)`;
         } else if (h.normalized_status === 'FAILED') {
             badgeColor = '#ef4444';
             badgeText = '❌ Selector Timeout';
@@ -196,6 +203,7 @@ function renderHtml(data: any): string {
         tr:hover { background:rgba(99,102,241,0.06); }
         .json-link { font-size:12px; color:#818cf8; text-decoration:none; margin-left:12px; }
         .json-link:hover { text-decoration:underline; }
+        code { background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-family:monospace; font-size:12px; }
     </style>
 </head>
 <body>
@@ -218,7 +226,7 @@ function renderHtml(data: any): string {
                 <div class="sub">ทดสอบย้อนหลัง 15-30 วัน</div>
             </div>
             <div class="card">
-                <div class="lbl">Round 1 Match Rate</div>
+                <div class="lbl">Morning Match Rate</div>
                 <div class="val" style="color:#22c55e;">${metrics.round1_match_rate}</div>
                 <div class="sub">เรทซื้อขาย TT ตรงกัน 100%</div>
             </div>
@@ -235,8 +243,11 @@ function renderHtml(data: any): string {
         </div>
 
         <div class="callout">
-            <strong style="color:#22c55e;">📌 ข้อสรุปความพร้อมเชิงเทคนิค (Ready for Production):</strong><br>
-            1. <strong>ความแม่นยำของเรท:</strong> ในรอบธนาคารเดียวกัน (Round 1) เรทซื้อขายโอนเงิน (Buy TT, Sell TT) ที่ฝ่ายการเงินใช้งานจริง <strong>ตรงกับ BrowserAct 100%</strong><br>
+            <strong style="color:#22c55e;">📌 ระเบียบการจัดเก็บและทดสอบ Shadow Test (Active Policy):</strong><br>
+            1. <strong>เก็บข้อมูลเหมือนกัน 100%:</strong> บันทึกค่า <code>0</code> แทน <code>null</code> ในสกุลเงินที่ไม่มีเรทธนบัตร/ตั๋วเงิน (เช่น AED, BHD, DKK) และบันทึกประเภท <code>USD (50-100)</code> เหมือน BrowserAct ทุกประการ<br>
+            2. <strong>รอบเช้าเท่านั้น (08:00 - 10:59 ICT):</strong> จำกัดการรันเฉพาะรอบเช้าเพื่อไม่ให้มีเรทบ่ายมาปะปน<br>
+            3. <strong>เน้นรอบ 1 เป็นหลักเสมอ:</strong> ยึดเรทรอบ 1 ของวันเป็นหลักและล็อกเรทไว้ หากได้รอบ 1 แล้วจะไม่บันทึกรอบ 2 ทับ ยกเว้นกรณีรอบ 1 พลาดจะอนุโลมรอบ 2 เป็น Fallback
+        </div>
             2. <strong>ความเร็ว:</strong> ทำงานเสร็จใน <strong>8 - 22 วินาที</strong> (ไม่ต้องรอ 2-Phase 90-120 วินาทีแบบ BrowserAct)<br>
             3. <strong>ต้นทุน:</strong> ใช้ทรัพยากรเพียง ~6% ของโควตาฟรี Browserless.io (ไม่ต้องจ่ายค่าบริการรายเดือนเพิ่ม)
         </div>

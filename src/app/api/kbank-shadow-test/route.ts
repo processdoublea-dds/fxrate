@@ -30,12 +30,68 @@ async function handleShadowTest(request: Request) {
 
     const runId = generateRunId();
     const t0 = Date.now();
+    const force = url.searchParams.get('force') === 'true';
+
+    // ── Time Gate: Morning only (08:00 - 10:59 ICT) ──────────────────────────
+    const bangkokHour = Number(new Date().toLocaleString('en-US', {
+        timeZone: 'Asia/Bangkok', hour: 'numeric', hour12: false,
+    }));
+    if (!force && (bangkokHour < 8 || bangkokHour >= 11)) {
+        return NextResponse.json({
+            success: true,
+            status: 'skipped',
+            reason: `Current Bangkok hour (${bangkokHour}:00) is outside morning shadow window (08:00 - 10:59 ICT). Morning rounds only.`,
+        });
+    }
+
+    // ── Round 1 Priority Dedup: Already have Round 1 for today? ───────────────
+    const todayDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+    const { data: existingShadows } = await supabaseAdmin
+        .from('scrape_logs')
+        .select('raw_response, status')
+        .eq('source', 'KBANK_SHADOW')
+        .gte('started_at', `${todayDate}T00:00:00+07:00`)
+        .order('id', { ascending: false });
+
+    let hasRound1Today = false;
+    if (existingShadows) {
+        for (const row of existingShadows) {
+            try {
+                const raw = JSON.parse(row.raw_response);
+                if (raw?.browserless?.round === '1' && (row.status === 'success' || raw?.match_status === 'PASS_100_MATCH' || raw?.status === 'partial')) {
+                    hasRound1Today = true;
+                    break;
+                }
+            } catch (_) {}
+        }
+    }
+
+    if (hasRound1Today && !force) {
+        console.log(`[KBANK Shadow] Round 1 already locked and verified for today (${todayDate}) — skipping further runs`);
+        return NextResponse.json({
+            success: true,
+            status: 'skipped',
+            reason: `Round 1 already locked and verified for today (${todayDate}). Prioritizing Round 1.`,
+        });
+    }
 
     try {
-        console.log('[KBANK Shadow] Starting Browserless parallel fetch test...');
+        console.log('[KBANK Shadow] Starting Browserless parallel fetch test (Morning Round 1 / 2)...');
         const blResult = await fetchKbankViaBrowserless();
         const durationMs = Date.now() - t0;
-        console.log(`[KBANK Shadow] Browserless finished in ${durationMs}ms with ${blResult.matchedCount} currencies`);
+        console.log(`[KBANK Shadow] Browserless finished in ${durationMs}ms with ${blResult.matchedCount} currencies (Round ${blResult.round})`);
+
+        // ── Round Gate: Only Morning Round 1 or 2 accepted (Round 1 prioritized) ─
+        if (!force && blResult.round !== '1' && blResult.round !== '2') {
+            console.log(`[KBANK Shadow] Bank is currently at Round ${blResult.round} (not morning Round 1 or 2). Skipping.`);
+            return NextResponse.json({
+                success: true,
+                status: 'skipped',
+                reason: `Bank is currently at Round ${blResult.round}. Only morning Round 1 or 2 are accepted (Round 1 prioritized).`,
+                browserless_round: blResult.round,
+                bank_timestamp: blResult.bankTimestamp,
+            });
+        }
 
         // Query today's existing KBANK rates in Supabase (from BrowserAct)
         const rateDate = blResult.rateDate;
@@ -60,7 +116,7 @@ async function handleShadowTest(request: Request) {
             });
         }
 
-        // Compare each currency
+        // Compare each currency (strict numerical match with 0 for empty/missing rates)
         const variances: any[] = [];
         let matchCount = 0;
 
@@ -77,23 +133,11 @@ async function handleShadowTest(request: Request) {
             const diffs: Record<string, { browserless: any; browseract: any }> = {};
             const fields = ['buy_sight', 'buy_tt', 'sell_tt', 'buy_notes', 'sell_notes'] as const;
 
-            const isZeroOrEmpty = (val: any) => val === null || val === undefined || val === 0 || val === '0' || val === '';
-
             fields.forEach(f => {
-                const v1 = bl[f];
-                const v2 = prod[f];
+                const v1 = Number(bl[f] ?? 0);
+                const v2 = Number(prod[f] ?? 0);
 
-                // Both null/undefined/0/empty are equivalent (no rate published for notes/sight bill)
-                if (isZeroOrEmpty(v1) && isZeroOrEmpty(v2)) {
-                    return;
-                }
-
-                // Compare with small floating point tolerance
-                if (v1 === null || v1 === undefined || v2 === null || v2 === undefined) {
-                    if (v1 !== v2) {
-                        diffs[f] = { browserless: v1, browseract: v2 };
-                    }
-                } else if (Math.abs(Number(v1) - Number(v2)) > 0.0001) {
+                if (Math.abs(v1 - v2) > 0.0001) {
                     diffs[f] = { browserless: v1, browseract: v2 };
                 }
             });
