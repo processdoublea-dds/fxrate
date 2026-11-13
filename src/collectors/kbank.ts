@@ -212,13 +212,22 @@ export class KbankCollector implements Collector {
 function normalizeCurrencyCode(item: Record<string, any>): string | null {
     const rawCurrency = (item.currency_code || item.currency || '').toString().trim().toUpperCase();
     if (!rawCurrency) return null;
+
     const denomination = (item.denomination || item.usd_range || item.usd_category || item.category || '').toString().trim();
-    if (denomination) {
-        if (denomination.toUpperCase().startsWith(rawCurrency)) {
-            return denomination.replace(/\s+/g, '');
-        }
-        return `${rawCurrency}${denomination}`.replace(/\s+/g, '');
+    if (rawCurrency.startsWith('USD') || denomination.toUpperCase().startsWith('USD')) {
+        const full = `${rawCurrency} ${denomination}`.toUpperCase();
+        if (full.includes('50-100')) return 'USD50-100';
+        if (full.includes('5-20')) return 'USD5-20';
+        if (full.includes('1-2') || full.includes(' 1') || full.includes('1USD')) return 'USD1';
+        return 'USD';
     }
+
+    // Standard 3-letter currency extraction (e.g. "EUR Euro" -> "EUR", "AED UAE Dirham" -> "AED")
+    const m = rawCurrency.match(/^([A-Z]{3})/);
+    if (m) {
+        return m[1];
+    }
+
     return rawCurrency.replace(/\s+/g, '');
 }
 
