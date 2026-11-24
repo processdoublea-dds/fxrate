@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { KbankCollector } from '@/collectors';
+import { runKbankShadowTest } from '@/lib/kbank-shadow';
 import {
     hasRateForToday,
     insertRates,
@@ -37,7 +38,7 @@ import { getTodayDate } from '@/collectors/base';
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-export const maxDuration = 30; // Only needs 30s — no more 90s polling!
+export const maxDuration = 60; // Phase 1/2 returns in ~2s; after() runs KBANK Shadow (~20-40s) in background
 export const dynamic = 'force-dynamic';
 
 const EXPECTED_KBANK = 26;
@@ -67,6 +68,19 @@ export async function GET(request: Request) {
             reason: `Bangkok hour ${bangkokHour} < 08:00`,
         });
     }
+
+    // ── Background Shadow Benchmark (Browserless) via Next.js after() ────────
+    // Triggered automatically from this existing GAS entrypoint (zero GAS edits needed).
+    // Today-Lock Dedup inside runKbankShadowTest ensures Browserless only runs until
+    // today's morning rate (Round 1/2) is captured, then skips in ~50ms.
+    after(async () => {
+        try {
+            const shadowRes = await runKbankShadowTest({ force: false });
+            console.log(`[KBANK Shadow via after()] ${shadowRes.body.status}: ${shadowRes.body.reason ?? 'ok'}`);
+        } catch (err) {
+            console.error('[KBANK Shadow via after()] Unhandled error:', err);
+        }
+    });
 
     // ── Dedup: Already have full dataset for today? ───────────────────────────
     const alreadyComplete = await hasRateForToday('KBANK', rateDate, undefined, EXPECTED_KBANK);

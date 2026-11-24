@@ -29,18 +29,75 @@ export async function GET(request: Request) {
         let passCount = 0;
         let crossRoundCount = 0;
         let failCount = 0;
+        let staleRetryCount = 0;
+        let waitingCount = 0;
+        let retroMatchedCount = 0;
+        let browserlessFirstCount = 0;
         let totalDurationMs = 0;
+        let durationRunCount = 0;
 
-        const history = (logs || []).map(l => {
+        const parsedLogs = (logs || []).map(l => {
             let details: any = null;
             try {
                 details = l.raw_response ? JSON.parse(l.raw_response) : null;
             } catch (_) {}
+            return { log: l, details };
+        });
 
+        // Batch-fetch BrowserAct exchange_rates for retroactive comparison
+        const pendingDates = Array.from(
+            new Set(
+                parsedLogs
+                    .filter(({ details }) =>
+                        details?.match_status === 'BROWSERLESS_OK_NO_BROWSERACT_DATA_YET' &&
+                        details?.browserless_rates &&
+                        details?.rate_date
+                    )
+                    .map(({ details }) => String(details.rate_date))
+            )
+        );
+
+        const prodByDate = new Map<string, {
+            byCurrency: Map<string, any>;
+            bank_timestamp: string | null;
+            fetched_at: string | null;
+        }>();
+
+        if (pendingDates.length > 0) {
+            const { data: prodRows } = await supabaseAdmin
+                .from('exchange_rates')
+                .select('rate_date, currency, buy_sight, buy_tt, sell_tt, buy_notes, sell_notes, bank_timestamp, fetched_at')
+                .eq('source', 'KBANK')
+                .in('rate_date', pendingDates);
+
+            for (const row of prodRows || []) {
+                const dateKey = String(row.rate_date);
+                let entry = prodByDate.get(dateKey);
+                if (!entry) {
+                    entry = {
+                        byCurrency: new Map<string, any>(),
+                        bank_timestamp: row.bank_timestamp || null,
+                        fetched_at: row.fetched_at || null,
+                    };
+                    prodByDate.set(dateKey, entry);
+                }
+                entry.byCurrency.set(row.currency, row);
+                if (!entry.bank_timestamp && row.bank_timestamp) {
+                    entry.bank_timestamp = row.bank_timestamp;
+                }
+                if (!entry.fetched_at && row.fetched_at) {
+                    entry.fetched_at = row.fetched_at;
+                }
+            }
+        }
+
+        const compareFields = ['buy_sight', 'buy_tt', 'sell_tt', 'buy_notes', 'sell_notes'] as const;
+
+        const history = parsedLogs.map(({ log: l, details }) => {
             const rawVariances = details?.comparison?.variances || [];
-            
+
             // Clean variances by filtering out null vs 0 equivalencies
-            const cleanVariances = rawVariances.map((v: any) => {
+            let cleanVariances = rawVariances.map((v: any) => {
                 if (!v.diffs) return v;
                 const cleanDiffs: Record<string, any> = {};
                 for (const [f, d] of Object.entries(v.diffs) as [string, any][]) {
@@ -54,21 +111,78 @@ export async function GET(request: Request) {
                 return null;
             }).filter(Boolean);
 
-            const blRound = details?.browserless?.round || null;
+            const blRound = details?.browserless?.round != null ? String(details.browserless.round) : null;
             const blTs = details?.browserless?.bank_timestamp || null;
-            const baTs = details?.browseract?.bank_timestamp || null;
+            let baTs = details?.browseract?.bank_timestamp || null;
+            let baFetchedAt: string | null = details?.browseract?.fetched_at || null;
+
+            const isSkipped = l.status === 'skipped' || details?.match_status === 'STALE_DATE_SKIPPED';
+            const isPendingBrowserAct = details?.match_status === 'BROWSERLESS_OK_NO_BROWSERACT_DATA_YET';
+            const prodData = isPendingBrowserAct && details?.rate_date
+                ? prodByDate.get(String(details.rate_date))
+                : undefined;
+
+            let isRetroCompared = false;
+            let isWaitingBrowserAct = false;
+
+            if (isPendingBrowserAct && !isSkipped) {
+                if (details?.browserless_rates && prodData && prodData.byCurrency.size > 0) {
+                    const blRates: any[] = Array.isArray(details.browserless_rates)
+                        ? details.browserless_rates
+                        : Object.values(details.browserless_rates);
+
+                    const retroVariances: any[] = [];
+                    for (const bl of blRates) {
+                        const prod = prodData.byCurrency.get(bl.currency);
+                        if (!prod) {
+                            retroVariances.push({
+                                currency: bl.currency,
+                                reason: 'MISSING_IN_BROWSERACT_PROD',
+                            });
+                            continue;
+                        }
+
+                        const diffs: Record<string, { browserless: any; browseract: any }> = {};
+                        for (const f of compareFields) {
+                            if (isZeroOrEmpty(bl[f]) && isZeroOrEmpty(prod[f])) continue;
+                            const v1 = Number(bl[f] ?? 0);
+                            const v2 = Number(prod[f] ?? 0);
+                            if (Math.abs(v1 - v2) > 0.0001) {
+                                diffs[f] = { browserless: v1, browseract: v2 };
+                            }
+                        }
+                        if (Object.keys(diffs).length > 0) {
+                            retroVariances.push({ currency: bl.currency, diffs });
+                        }
+                    }
+
+                    cleanVariances = retroVariances;
+                    baTs = prodData.bank_timestamp || baTs;
+                    baFetchedAt = prodData.fetched_at || baFetchedAt;
+                    isRetroCompared = true;
+                    retroMatchedCount++;
+                } else {
+                    isWaitingBrowserAct = true;
+                }
+            }
 
             // Morning rounds only: Round 1 (Primary) or Round 2
             const isMorningRound = blRound === '1' || blRound === '2';
-            const isAfternoonRound = blRound && !isMorningRound;
+            const isAfternoonRound = Boolean(blRound && !isMorningRound);
 
             let normalizedStatus = 'PASS_ROUND_1_MATCH';
-            if (l.status === 'failed') {
+            if (isSkipped) {
+                normalizedStatus = 'STALE_DATE_SKIPPED';
+                staleRetryCount++;
+            } else if (l.status === 'failed') {
                 normalizedStatus = 'FAILED';
                 failCount++;
             } else if (isAfternoonRound) {
                 normalizedStatus = 'AFTERNOON_ROUND_SKIPPED';
                 crossRoundCount++;
+            } else if (isWaitingBrowserAct) {
+                normalizedStatus = 'WAITING_BROWSERACT';
+                waitingCount++;
             } else if (cleanVariances.length === 0) {
                 normalizedStatus = blRound === '1' ? 'PASS_ROUND_1_MATCH' : 'PASS_ROUND_2_MATCH';
                 passCount++;
@@ -79,45 +193,81 @@ export async function GET(request: Request) {
                 normalizedStatus = 'VARIANCE_DETECTED';
             }
 
-            if (l.duration_ms) totalDurationMs += l.duration_ms;
+            if (!isSkipped && l.duration_ms && l.duration_ms > 0) {
+                totalDurationMs += l.duration_ms;
+                durationRunCount++;
+            }
+
+            let headToHeadDeltaSeconds: number | null = null;
+            const blFinishedAt = l.completed_at || details?.tested_at || l.started_at;
+            if (!isSkipped && blFinishedAt && baFetchedAt) {
+                const blTime = new Date(blFinishedAt).getTime();
+                const baTime = new Date(baFetchedAt).getTime();
+                if (!Number.isNaN(blTime) && !Number.isNaN(baTime)) {
+                    headToHeadDeltaSeconds = Math.round((baTime - blTime) / 1000);
+                    if (headToHeadDeltaSeconds > 0) {
+                        browserlessFirstCount++;
+                    }
+                }
+            }
 
             return {
                 id: l.id,
                 tested_at: l.started_at,
+                completed_at: l.completed_at || null,
                 status: l.status,
                 raw_match_status: details?.match_status || l.status,
                 normalized_status: normalizedStatus,
+                retroactively_compared: isRetroCompared,
                 duration_seconds: l.duration_ms ? (l.duration_ms / 1000).toFixed(1) : '0',
                 currencies_checked: l.records_count,
                 round: blRound || 'N/A',
                 browserless_timestamp: blTs || 'N/A',
                 browseract_timestamp: baTs || 'N/A',
-                effective_diff_count: cleanVariances.length,
-                raw_diff_count: details?.comparison?.diff_count || 0,
-                clean_variances: cleanVariances,
+                browseract_fetched_at: baFetchedAt,
+                head_to_head_lead_seconds: headToHeadDeltaSeconds,
+                effective_diff_count: isWaitingBrowserAct || isSkipped ? 0 : cleanVariances.length,
+                raw_diff_count: isRetroCompared ? cleanVariances.length : (details?.comparison?.diff_count || 0),
+                clean_variances: isWaitingBrowserAct || isSkipped ? [] : cleanVariances,
             };
         });
 
-        const avgDurationSeconds = totalRuns > 0 ? (totalDurationMs / totalRuns / 1000).toFixed(1) : '0';
+        const avgDurationSeconds = durationRunCount > 0 ? (totalDurationMs / durationRunCount / 1000).toFixed(1) : '0';
         
         // Quota: Free tier is 6 hours = 21,600 seconds per month
         const estimatedMonthlySeconds = parseFloat(avgDurationSeconds) * 30 * 2;
         const quotaUsedPercent = ((estimatedMonthlySeconds / 21600) * 100).toFixed(2);
 
-        // Same Round 1 Verification Pass Rate
-        const round1Runs = history.filter(h => h.round === '1' && h.status !== 'failed');
-        const round1PassRate = round1Runs.length > 0 ? ((passCount / round1Runs.length) * 100).toFixed(1) : '100.0';
+        // Comparable Morning Verification Pass Rate (capped cleanly at 100.0%)
+        const comparableMorningRuns = history.filter(h =>
+            ['PASS_ROUND_1_MATCH', 'PASS_ROUND_2_MATCH', 'PASS_USD_TIER_DIFF', 'VARIANCE_DETECTED'].includes(h.normalized_status)
+        );
+        const round1PassRate = comparableMorningRuns.length > 0
+            ? Math.min(100, (passCount / comparableMorningRuns.length) * 100).toFixed(1)
+            : '100.0';
+
+        const round1Count = history.filter(h => h.round === '1' && h.normalized_status !== 'STALE_DATE_SKIPPED').length;
+        const round2Count = history.filter(h => h.round === '2' && h.normalized_status !== 'STALE_DATE_SKIPPED').length;
 
         const summaryData = {
             title: 'KBANK Shadow Parallel Verification Report (Browserless vs BrowserAct)',
             metrics: {
                 total_runs: totalRuns,
                 same_round_pass_count: passCount,
+                comparable_morning_runs: comparableMorningRuns.length,
                 cross_round_tests: crossRoundCount,
+                stale_retry_count: staleRetryCount,
+                waiting_browseract_count: waitingCount,
+                retroactive_matched_count: retroMatchedCount,
                 failed_count: failCount,
                 round1_match_rate: `${round1PassRate}%`,
                 avg_fetch_duration: `${avgDurationSeconds}s`,
                 estimated_monthly_quota_used: `${quotaUsedPercent}% of 6-hour Free Tier`,
+                head_to_head: {
+                    round_1_runs: round1Count,
+                    round_2_runs: round2Count,
+                    browserless_finished_first_count: browserlessFirstCount,
+                },
             },
             history,
         };
@@ -154,27 +304,62 @@ function renderHtml(data: any): string {
         } else if (h.normalized_status === 'AFTERNOON_ROUND_SKIPPED') {
             badgeColor = '#f59e0b';
             badgeText = `⚠️ Afternoon (Round ${h.round} Skipped)`;
+        } else if (h.normalized_status === 'STALE_DATE_SKIPPED') {
+            badgeColor = '#94a3b8';
+            badgeText = '⏭ Stale Date (Retry)';
+        } else if (h.normalized_status === 'WAITING_BROWSERACT') {
+            badgeColor = '#0ea5e9';
+            badgeText = '⏳ Waiting BrowserAct';
+        } else if (h.normalized_status === 'VARIANCE_DETECTED') {
+            badgeColor = '#f97316';
+            badgeText = '⚠️ Variance Detected';
         } else if (h.normalized_status === 'FAILED') {
             badgeColor = '#ef4444';
             badgeText = '❌ Selector Timeout';
         }
 
         const dateStr = h.tested_at ? new Date(h.tested_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : '-';
+        const baFetchedStr = h.browseract_fetched_at
+            ? new Date(h.browseract_fetched_at).toLocaleTimeString('th-TH', { timeZone: 'Asia/Bangkok' })
+            : null;
+
+        let headToHeadHtml = '';
+        if (h.head_to_head_lead_seconds !== null && h.head_to_head_lead_seconds !== undefined) {
+            const absSec = Math.abs(h.head_to_head_lead_seconds);
+            const fmtDelta = absSec >= 60 ? `${Math.floor(absSec / 60)}m ${absSec % 60}s` : `${absSec}s`;
+            if (h.head_to_head_lead_seconds > 0) {
+                headToHeadHtml = `<div style="font-size:10px;color:#22c55e;margin-top:2px;">⚡ BL faster by ${fmtDelta}${baFetchedStr ? ` (BA ${baFetchedStr})` : ''}</div>`;
+            } else if (h.head_to_head_lead_seconds < 0) {
+                headToHeadHtml = `<div style="font-size:10px;color:#94a3b8;margin-top:2px;">BA earlier by ${fmtDelta}${baFetchedStr ? ` (${baFetchedStr})` : ''}</div>`;
+            } else {
+                headToHeadHtml = `<div style="font-size:10px;color:#94a3b8;margin-top:2px;">Same second${baFetchedStr ? ` (${baFetchedStr})` : ''}</div>`;
+            }
+        } else if (baFetchedStr) {
+            headToHeadHtml = `<div style="font-size:10px;color:#94a3b8;margin-top:2px;">BA fetched ${baFetchedStr}</div>`;
+        }
+
+        const roundDetailHtml = `
+            <div style="font-weight:700;color:#f8fafc;">Round ${h.round}${h.retroactively_compared ? ' <span style="font-size:10px;color:#38bdf8;font-weight:600;">(Retro)</span>' : ''}</div>
+            <div style="font-size:10px;color:#64748b;font-family:monospace;margin-top:2px;">BL: ${h.browserless_timestamp} | BA: ${h.browseract_timestamp}</div>
+        `;
+
+        const diffCellHtml = h.normalized_status === 'STALE_DATE_SKIPPED'
+            ? '<span style="color:#94a3b8;">Skipped (waiting today\'s rate)</span>'
+            : h.normalized_status === 'WAITING_BROWSERACT'
+                ? '<span style="color:#0ea5e9;">Pending BrowserAct data</span>'
+                : h.effective_diff_count === 0
+                    ? '<span style="color:#22c55e;">0 diffs (100% Match)</span>'
+                    : `<span style="color:${badgeColor};">${h.effective_diff_count} diffs</span>`;
 
         return `
             <tr>
                 <td style="color:#64748b;">${h.id}</td>
                 <td>${dateStr}</td>
                 <td><span style="display:inline-block;padding:2px 8px;border-radius:6px;background:${badgeColor}22;color:${badgeColor};font-weight:700;font-size:11px;">${badgeText}</span></td>
-                <td style="font-weight:700;color:#f8fafc;">Round ${h.round}</td>
-                <td style="color:#38bdf8;font-family:monospace;">${h.duration_seconds}s</td>
+                <td>${roundDetailHtml}</td>
+                <td style="color:#38bdf8;font-family:monospace;">${h.duration_seconds}s${headToHeadHtml}</td>
                 <td>${h.currencies_checked}</td>
-                <td>
-                    ${h.effective_diff_count === 0 
-                        ? '<span style="color:#22c55e;">0 diffs (100% Match)</span>'
-                        : `<span style="color:${badgeColor};">${h.effective_diff_count} diffs</span>`
-                    }
-                </td>
+                <td>${diffCellHtml}</td>
             </tr>
         `;
     }).join('');
@@ -223,17 +408,17 @@ function renderHtml(data: any): string {
             <div class="card">
                 <div class="lbl">Total Runs</div>
                 <div class="val" style="color:#f8fafc;">${metrics.total_runs}</div>
-                <div class="sub">ทดสอบย้อนหลัง 15-30 วัน</div>
+                <div class="sub">Comparable: ${metrics.comparable_morning_runs} • Stale Retries: ${metrics.stale_retry_count}</div>
             </div>
             <div class="card">
                 <div class="lbl">Morning Match Rate</div>
                 <div class="val" style="color:#22c55e;">${metrics.round1_match_rate}</div>
-                <div class="sub">เรทซื้อขาย TT ตรงกัน 100%</div>
+                <div class="sub">R1: ${metrics.head_to_head?.round_1_runs ?? 0} • R2: ${metrics.head_to_head?.round_2_runs ?? 0} • BL First: ${metrics.head_to_head?.browserless_finished_first_count ?? 0}</div>
             </div>
             <div class="card">
                 <div class="lbl">Avg Latency</div>
                 <div class="val" style="color:#38bdf8;">${metrics.avg_fetch_duration}</div>
-                <div class="sub">เร็วกว่า BrowserAct 5 เท่า (120s)</div>
+                <div class="sub">Retro Matched: ${metrics.retroactive_matched_count} • Waiting BA: ${metrics.waiting_browseract_count}</div>
             </div>
             <div class="card">
                 <div class="lbl">Quota Consumption</div>
@@ -246,10 +431,7 @@ function renderHtml(data: any): string {
             <strong style="color:#22c55e;">📌 ระเบียบการจัดเก็บและทดสอบ Shadow Test (Active Policy):</strong><br>
             1. <strong>เก็บข้อมูลเหมือนกัน 100%:</strong> บันทึกค่า <code>0</code> แทน <code>null</code> ในสกุลเงินที่ไม่มีเรทธนบัตร/ตั๋วเงิน (เช่น AED, BHD, DKK) และบันทึกประเภท <code>USD (50-100)</code> เหมือน BrowserAct ทุกประการ<br>
             2. <strong>รอบเช้าเท่านั้น (08:00 - 10:59 ICT):</strong> จำกัดการรันเฉพาะรอบเช้าเพื่อไม่ให้มีเรทบ่ายมาปะปน<br>
-            3. <strong>เน้นรอบ 1 เป็นหลักเสมอ:</strong> ยึดเรทรอบ 1 ของวันเป็นหลักและล็อกเรทไว้ หากได้รอบ 1 แล้วจะไม่บันทึกรอบ 2 ทับ ยกเว้นกรณีรอบ 1 พลาดจะอนุโลมรอบ 2 เป็น Fallback
-        </div>
-            2. <strong>ความเร็ว:</strong> ทำงานเสร็จใน <strong>8 - 22 วินาที</strong> (ไม่ต้องรอ 2-Phase 90-120 วินาทีแบบ BrowserAct)<br>
-            3. <strong>ต้นทุน:</strong> ใช้ทรัพยากรเพียง ~6% ของโควตาฟรี Browserless.io (ไม่ต้องจ่ายค่าบริการรายเดือนเพิ่ม)
+            3. <strong>รันคู่ขนานอิสระตั้งแต่ 08:25 ICT &amp; ล็อกเรทเช้า:</strong> Shadow ทำงานคู่ขนานแบบอิสระกับ BrowserAct ตั้งแต่เวลา 08:25 ICT (เทียบย้อนหลังอัตโนมัติหาก Browserless เสร็จก่อน) และจะล็อกผลทันทีเมื่อเก็บเรทเช้าของวันนั้นสำเร็จแล้ว
         </div>
 
         <div style="overflow-x:auto;">
@@ -259,8 +441,8 @@ function renderHtml(data: any): string {
                         <th>ID</th>
                         <th>วัน-เวลาทดสอบ</th>
                         <th>สถานะการเปรียบเทียบ</th>
-                        <th>รอบธนาคาร</th>
-                        <th>ความเร็ว</th>
+                        <th>รอบธนาคาร / เวลาเรท</th>
+                        <th>ความเร็ว / Head-to-Head</th>
                         <th>สกุลเงิน</th>
                         <th>ผลการตรวจสอบ</th>
                     </tr>
