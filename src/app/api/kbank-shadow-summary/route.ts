@@ -124,6 +124,13 @@ export async function GET(request: Request) {
 
             let isRetroCompared = false;
             let isWaitingBrowserAct = false;
+            let currencyComparisons: Array<{
+                currency: string;
+                status: 'MATCH' | 'DIFF' | 'MISSING_BA';
+                diff_fields: string[];
+                bl: Record<string, number>;
+                ba: Record<string, number> | null;
+            }> = [];
 
             if (isPendingBrowserAct && !isSkipped) {
                 if (details?.browserless_rates && prodData && prodData.byCurrency.size > 0) {
@@ -136,29 +143,61 @@ export async function GET(request: Request) {
 
                     const retroVariances: any[] = [];
                     for (const { currency, rate: bl } of blEntries) {
+                        const blVals = {
+                            buy_sight: Number(bl.buy_sight ?? 0),
+                            buy_tt: Number(bl.buy_tt ?? 0),
+                            sell_tt: Number(bl.sell_tt ?? 0),
+                            buy_notes: Number(bl.buy_notes ?? 0),
+                            sell_notes: Number(bl.sell_notes ?? 0),
+                        };
                         const prod = prodData.byCurrency.get(currency);
                         if (!prod) {
                             retroVariances.push({
                                 currency,
                                 reason: 'MISSING_IN_BROWSERACT_PROD',
                             });
+                            currencyComparisons.push({
+                                currency,
+                                status: 'MISSING_BA',
+                                diff_fields: [],
+                                bl: blVals,
+                                ba: null,
+                            });
                             continue;
                         }
 
+                        const baVals = {
+                            buy_sight: Number(prod.buy_sight ?? 0),
+                            buy_tt: Number(prod.buy_tt ?? 0),
+                            sell_tt: Number(prod.sell_tt ?? 0),
+                            buy_notes: Number(prod.buy_notes ?? 0),
+                            sell_notes: Number(prod.sell_notes ?? 0),
+                        };
+
                         const diffs: Record<string, { browserless: any; browseract: any }> = {};
+                        const diffFields: string[] = [];
                         for (const f of compareFields) {
                             if (isZeroOrEmpty(bl[f]) && isZeroOrEmpty(prod[f])) continue;
-                            const v1 = Number(bl[f] ?? 0);
-                            const v2 = Number(prod[f] ?? 0);
+                            const v1 = blVals[f];
+                            const v2 = baVals[f];
                             if (Math.abs(v1 - v2) > 0.0001) {
                                 diffs[f] = { browserless: v1, browseract: v2 };
+                                diffFields.push(f);
                             }
                         }
                         if (Object.keys(diffs).length > 0) {
                             retroVariances.push({ currency, diffs });
                         }
+                        currencyComparisons.push({
+                            currency,
+                            status: diffFields.length > 0 ? 'DIFF' : 'MATCH',
+                            diff_fields: diffFields,
+                            bl: blVals,
+                            ba: baVals,
+                        });
                     }
 
+                    currencyComparisons.sort((a, b) => a.currency.localeCompare(b.currency));
                     cleanVariances = retroVariances;
                     baTs = prodData.bank_timestamp || baTs;
                     baFetchedAt = prodData.fetched_at || baFetchedAt;
@@ -232,6 +271,7 @@ export async function GET(request: Request) {
                 effective_diff_count: isWaitingBrowserAct || isSkipped ? 0 : cleanVariances.length,
                 raw_diff_count: isRetroCompared ? cleanVariances.length : (details?.comparison?.diff_count || 0),
                 clean_variances: isWaitingBrowserAct || isSkipped ? [] : cleanVariances,
+                currency_comparisons: currencyComparisons,
             };
         });
 
@@ -346,16 +386,17 @@ function renderHtml(data: any): string {
             <div style="font-size:10px;color:#64748b;font-family:monospace;margin-top:2px;">BL: ${h.browserless_timestamp} | BA: ${h.browseract_timestamp}</div>
         `;
 
+        const hasInspectable = h.currency_comparisons.length > 0 || h.clean_variances.length > 0;
         const diffCellHtml = h.normalized_status === 'STALE_DATE_SKIPPED'
             ? '<span style="color:#94a3b8;">Skipped (waiting today\'s rate)</span>'
             : h.normalized_status === 'WAITING_BROWSERACT'
                 ? '<span style="color:#0ea5e9;">Pending BrowserAct data</span>'
                 : h.effective_diff_count === 0
-                    ? '<span style="color:#22c55e;">0 diffs (100% Match)</span>'
-                    : `<span style="color:${badgeColor};">${h.effective_diff_count} diffs</span>`;
+                    ? `<span style="color:#22c55e;">0 diffs (100% Match)</span>${hasInspectable ? ' <span class="inspect-pill">🔍 ดูเรท</span>' : ''}`
+                    : `<span style="color:${badgeColor};">${h.effective_diff_count} diffs</span>${hasInspectable ? ' <span class="inspect-pill">🔍 ดูจุดต่าง</span>' : ''}`;
 
         return `
-            <tr>
+            <tr class="${hasInspectable ? 'clickable-row' : ''}" ${hasInspectable ? `onclick="openCompareModal(${h.id})"` : ''}>
                 <td style="color:#64748b;">${h.id}</td>
                 <td>${dateStr}</td>
                 <td><span style="display:inline-block;padding:2px 8px;border-radius:6px;background:${badgeColor}22;color:${badgeColor};font-weight:700;font-size:11px;">${badgeText}</span></td>
@@ -389,6 +430,20 @@ function renderHtml(data: any): string {
         th { background:#0f172a; padding:12px 14px; text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:#94a3b8; border-bottom:1px solid #334155; }
         td { padding:10px 14px; border-bottom:1px solid rgba(51,65,85,0.4); }
         tr:hover { background:rgba(99,102,241,0.06); }
+        tr.clickable-row { cursor:pointer; }
+        tr.clickable-row:hover { background:rgba(56,189,248,0.12); }
+        .inspect-pill { display:inline-block; margin-left:6px; padding:2px 7px; border-radius:999px; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.35); color:#38bdf8; font-size:11px; font-weight:600; }
+        .modal-backdrop { display:none; position:fixed; inset:0; background:rgba(2,6,23,0.78); backdrop-filter:blur(4px); z-index:50; padding:24px; overflow-y:auto; }
+        .modal-backdrop.open { display:flex; align-items:flex-start; justify-content:center; }
+        .modal-card { width:100%; max-width:1050px; background:#0f172a; border:1px solid #334155; border-radius:14px; padding:20px; box-shadow:0 20px 50px rgba(0,0,0,0.6); margin-top:20px; }
+        .modal-hdr { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; border-bottom:1px solid #1e293b; padding-bottom:14px; margin-bottom:14px; }
+        .modal-close { background:#1e293b; border:1px solid #334155; color:#cbd5e1; border-radius:8px; padding:6px 12px; cursor:pointer; font-size:12px; font-weight:600; }
+        .modal-close:hover { background:#334155; color:#fff; }
+        .filter-tabs { display:flex; gap:8px; margin-bottom:12px; }
+        .filter-tab { background:#1e293b; border:1px solid #334155; color:#94a3b8; border-radius:8px; padding:5px 12px; font-size:12px; cursor:pointer; }
+        .filter-tab.active { background:rgba(99,102,241,0.2); border-color:#818cf8; color:#e0e7ff; font-weight:600; }
+        .num { font-family:monospace; font-size:12px; white-space:nowrap; }
+        .cell-diff { background:rgba(249,115,22,0.16); color:#fdba74; border-radius:4px; padding:2px 4px; }
         .json-link { font-size:12px; color:#818cf8; text-decoration:none; margin-left:12px; }
         .json-link:hover { text-decoration:underline; }
         code { background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-family:monospace; font-size:12px; }
@@ -456,6 +511,140 @@ function renderHtml(data: any): string {
             </table>
         </div>
     </div>
+
+    <div id="compareModal" class="modal-backdrop" onclick="if(event.target===this) closeCompareModal()">
+        <div class="modal-card">
+            <div class="modal-hdr">
+                <div>
+                    <h2 id="modalTitle" style="margin:0;font-size:17px;color:#f8fafc;">เทียบเรท BL vs BA รายสกุลเงิน</h2>
+                    <div id="modalSubtitle" style="font-size:12px;color:#94a3b8;margin-top:4px;font-family:monospace;"></div>
+                </div>
+                <button class="modal-close" onclick="closeCompareModal()">✕ ปิด</button>
+            </div>
+            <div id="modalFilters" class="filter-tabs"></div>
+            <div style="overflow-x:auto;max-height:70vh;overflow-y:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Currency</th>
+                            <th>Status</th>
+                            <th>Buy Sight (BL / BA)</th>
+                            <th>Buy TT (BL / BA)</th>
+                            <th>Sell TT (BL / BA)</th>
+                            <th>Buy Notes (BL / BA)</th>
+                            <th>Sell Notes (BL / BA)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modalTbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const SHADOW_HISTORY = ${JSON.stringify(history).replace(/</g, '\\u003c')};
+        let currentModalItem = null;
+        let currentFilter = 'all';
+
+        function fmt(v) {
+            if (v === null || v === undefined || v === 0) return '0';
+            return Number(v).toFixed(5).replace(/0+$/, '').replace(/\\.$/, '');
+        }
+
+        function renderPair(blVal, baVal, isDiff) {
+            const text = baVal === null || baVal === undefined
+                ? fmt(blVal) + ' / -'
+                : fmt(blVal) + ' / ' + fmt(baVal);
+            return '<span class="' + (isDiff ? 'cell-diff' : '') + '">' + text + '</span>';
+        }
+
+        function setModalFilter(mode) {
+            currentFilter = mode;
+            renderModalBody();
+        }
+
+        function renderModalBody() {
+            const item = currentModalItem;
+            if (!item) return;
+
+            const hasFull = Array.isArray(item.currency_comparisons) && item.currency_comparisons.length > 0;
+            const filtersEl = document.getElementById('modalFilters');
+            const tbodyEl = document.getElementById('modalTbody');
+
+            if (hasFull) {
+                const diffOnlyCount = item.currency_comparisons.filter(c => c.status !== 'MATCH').length;
+                filtersEl.innerHTML =
+                    '<button class="filter-tab ' + (currentFilter === 'all' ? 'active' : '') + '" onclick="setModalFilter(\\'all\\')">ทั้งหมด (' + item.currency_comparisons.length + ')</button>' +
+                    '<button class="filter-tab ' + (currentFilter === 'diff' ? 'active' : '') + '" onclick="setModalFilter(\\'diff\\')">เฉพาะจุดที่ต่าง (' + diffOnlyCount + ')</button>';
+
+                const rows = currentFilter === 'diff'
+                    ? item.currency_comparisons.filter(c => c.status !== 'MATCH')
+                    : item.currency_comparisons;
+
+                if (rows.length === 0) {
+                    tbodyEl.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#22c55e;padding:24px;">✅ ตรงกันทุกสกุลเงิน 100% ไม่มีจุดต่าง</td></tr>';
+                    return;
+                }
+
+                tbodyEl.innerHTML = rows.map(c => {
+                    const statusBadge = c.status === 'MATCH'
+                        ? '<span style="color:#22c55e;font-weight:700;">✅ Match</span>'
+                        : c.status === 'MISSING_BA'
+                            ? '<span style="color:#f59e0b;font-weight:700;">⚠️ Missing BA</span>'
+                            : '<span style="color:#f97316;font-weight:700;">⚠️ Diff (' + c.diff_fields.join(', ') + ')</span>';
+                    const ba = c.ba || {};
+                    return '<tr>' +
+                        '<td style="font-weight:700;color:#f8fafc;">' + c.currency + '</td>' +
+                        '<td>' + statusBadge + '</td>' +
+                        '<td class="num">' + renderPair(c.bl.buy_sight, c.ba ? ba.buy_sight : null, c.diff_fields.includes('buy_sight')) + '</td>' +
+                        '<td class="num">' + renderPair(c.bl.buy_tt, c.ba ? ba.buy_tt : null, c.diff_fields.includes('buy_tt')) + '</td>' +
+                        '<td class="num">' + renderPair(c.bl.sell_tt, c.ba ? ba.sell_tt : null, c.diff_fields.includes('sell_tt')) + '</td>' +
+                        '<td class="num">' + renderPair(c.bl.buy_notes, c.ba ? ba.buy_notes : null, c.diff_fields.includes('buy_notes')) + '</td>' +
+                        '<td class="num">' + renderPair(c.bl.sell_notes, c.ba ? ba.sell_notes : null, c.diff_fields.includes('sell_notes')) + '</td>' +
+                    '</tr>';
+                }).join('');
+            } else {
+                filtersEl.innerHTML = '<span style="font-size:12px;color:#94a3b8;">ℹ️ รายการเก่าก่อนเปิดเก็บ snapshot รายสกุล — แสดงเฉพาะรายการที่มีความต่าง</span>';
+                const vars = item.clean_variances || [];
+                if (vars.length === 0) {
+                    tbodyEl.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#22c55e;padding:24px;">✅ ตรงกัน 100% (ไม่มี variance)</td></tr>';
+                    return;
+                }
+                tbodyEl.innerHTML = vars.map(v => {
+                    const d = v.diffs || {};
+                    const cell = (f) => d[f] ? renderPair(d[f].browserless, d[f].browseract, true) : '<span style="color:#64748b;">= (Match)</span>';
+                    return '<tr>' +
+                        '<td style="font-weight:700;color:#f8fafc;">' + v.currency + '</td>' +
+                        '<td><span style="color:#f97316;font-weight:700;">' + (v.reason || '⚠️ Diff') + '</span></td>' +
+                        '<td class="num">' + cell('buy_sight') + '</td>' +
+                        '<td class="num">' + cell('buy_tt') + '</td>' +
+                        '<td class="num">' + cell('sell_tt') + '</td>' +
+                        '<td class="num">' + cell('buy_notes') + '</td>' +
+                        '<td class="num">' + cell('sell_notes') + '</td>' +
+                    '</tr>';
+                }).join('');
+            }
+        }
+
+        function openCompareModal(id) {
+            const item = SHADOW_HISTORY.find(h => h.id === id);
+            if (!item) return;
+            currentModalItem = item;
+            currentFilter = 'all';
+            document.getElementById('modalTitle').textContent = 'Run #' + item.id + ' — Round ' + item.round + ' (BL vs BA)';
+            document.getElementById('modalSubtitle').textContent = 'BL: ' + item.browserless_timestamp + '  |  BA: ' + item.browseract_timestamp;
+            renderModalBody();
+            document.getElementById('compareModal').classList.add('open');
+        }
+
+        function closeCompareModal() {
+            document.getElementById('compareModal').classList.remove('open');
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeCompareModal();
+        });
+    </script>
 </body>
 </html>`;
 }
