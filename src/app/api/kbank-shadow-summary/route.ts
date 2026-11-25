@@ -127,16 +127,19 @@ export async function GET(request: Request) {
 
             if (isPendingBrowserAct && !isSkipped) {
                 if (details?.browserless_rates && prodData && prodData.byCurrency.size > 0) {
-                    const blRates: any[] = Array.isArray(details.browserless_rates)
-                        ? details.browserless_rates
-                        : Object.values(details.browserless_rates);
+                    const blEntries: Array<{ currency: string; rate: any }> = Array.isArray(details.browserless_rates)
+                        ? details.browserless_rates.map((r: any) => ({ currency: r.currency, rate: r }))
+                        : Object.entries(details.browserless_rates).map(([cur, r]: [string, any]) => ({
+                              currency: r?.currency || cur,
+                              rate: r,
+                          }));
 
                     const retroVariances: any[] = [];
-                    for (const bl of blRates) {
-                        const prod = prodData.byCurrency.get(bl.currency);
+                    for (const { currency, rate: bl } of blEntries) {
+                        const prod = prodData.byCurrency.get(currency);
                         if (!prod) {
                             retroVariances.push({
-                                currency: bl.currency,
+                                currency,
                                 reason: 'MISSING_IN_BROWSERACT_PROD',
                             });
                             continue;
@@ -152,7 +155,7 @@ export async function GET(request: Request) {
                             }
                         }
                         if (Object.keys(diffs).length > 0) {
-                            retroVariances.push({ currency: bl.currency, diffs });
+                            retroVariances.push({ currency, diffs });
                         }
                     }
 
